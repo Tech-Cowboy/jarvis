@@ -133,6 +133,7 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 | `ROUTING_ESCALATE` | `true` | Move up a tier when the chosen one fails or cannot handle the request. |
 | `LLM_PROVIDER` | `auto` | Pin one provider (turns tiers off): `anthropic`, `openai`, `ollama` or `keyword`. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMART_MODEL` | `claude-haiku-4-5-20251001`, `claude-sonnet-5` | Fast and smart tier models (`claude-opus-5-5` for the strongest). |
+| `ANTHROPIC_WORKSPACE_ID` | empty | Only for an organization-level key: the `wrkspc_...` ID from Console > Settings > Workspaces. A key created inside a workspace needs nothing. |
 | `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_SMART_MODEL` | `gpt-6-luna`, `gpt-6-sol` | Any Chat Completions models with function calling (`gpt-6-astra` is the most capable). |
 | `OLLAMA_MODEL`, `OLLAMA_SMART_MODEL`, `OLLAMA_HOST` | `qwen3:4b`, empty | Local free tier; optional bigger local model for the smart tier when no hosted key is set. |
 | `TTS_PROVIDER` | `auto` | `elevenlabs` when a key is set, else `say` on macOS, else `console`. |
@@ -216,6 +217,12 @@ schema.
   character quota; `TTS_CACHE` keeps repeated phrases free.
 - **No LLM key**: everything still works in keyword mode (`jarvis --llm keyword`), which is the classic experience.
 - **Python 3.14**: some audio wheels lag new Python releases; the setup script pins 3.12 through `uv`.
+- **`ModuleNotFoundError: No module named 'jarvis'` when running `jarvis` from another folder**: Python 3.12+ skips
+  `.pth` files that carry the macOS hidden flag, so the editable install goes invisible. `uv` sets the flag on
+  `.venv`, and a folder linked to the Claude desktop app gets every dot-folder re-flagged within seconds, so
+  `chflags -R nohidden .venv` only helps briefly. The setup script installs a `sitecustomize.py` in the venv that
+  falls back to the repo checkout whenever the `.pth` was skipped; rerun `./scripts/setup_mac.sh` if you rebuilt
+  the venv by hand.
 
 ## Costs and privacy
 

@@ -41,14 +41,17 @@ def to_anthropic_tools(tools: list[ToolSpec]) -> list[dict[str, Any]]:
 class AnthropicLLM(LLM):
     name = "anthropic"
 
-    def __init__(self, api_key: str, model: str, max_tokens: int = 400):
+    def __init__(self, api_key: str, model: str, max_tokens: int = 400, workspace_id: str = ""):
         try:
             import anthropic
         except ImportError as e:  # pragma: no cover
             raise LLMError("The 'anthropic' package is not installed. Run: pip install anthropic") from e
-        self._client = anthropic.Anthropic(api_key=api_key)
+        # An organization-level key (one not created inside a workspace) must name the workspace on every request.
+        headers = {"anthropic-workspace-id": workspace_id} if workspace_id else None
+        self._client = anthropic.Anthropic(api_key=api_key, default_headers=headers)
         self.model = model
         self.max_tokens = max_tokens
+        self.workspace_id = workspace_id
 
     def complete(self, system: str, messages: list[Message], tools: list[ToolSpec]) -> LLMResponse:
         kwargs: dict[str, Any] = dict(
@@ -62,7 +65,7 @@ class AnthropicLLM(LLM):
         try:
             resp = self._client.messages.create(**kwargs)
         except Exception as e:
-            raise LLMError(f"Anthropic request failed: {e}") from e
+            raise LLMError(_explain(e)) from e
 
         text_parts: list[str] = []
         calls: list[ToolCall] = []
@@ -78,4 +81,16 @@ class AnthropicLLM(LLM):
         try:
             return [m.id for m in self._client.models.list(limit=50).data]
         except Exception as e:
-            raise LLMError(f"Could not list Anthropic models: {e}") from e
+            raise LLMError(_explain(e)) from e
+
+
+WORKSPACE_HINT = ("This key is an organization-level key, so Anthropic needs to know the workspace: set "
+                  "ANTHROPIC_WORKSPACE_ID in .env to the workspace ID (Console > Settings > Workspaces, it starts with "
+                  "wrkspc_), or create the key inside a workspace instead.")
+
+
+def _explain(error: Exception) -> str:
+    text = str(error)
+    if "anthropic-workspace-id" in text:
+        return "Anthropic request failed: " + WORKSPACE_HINT
+    return f"Anthropic request failed: {text}"

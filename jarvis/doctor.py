@@ -60,7 +60,8 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
             add(Check(OK, "free-tier", f"Ollama reachable ({settings.ollama_model})"))
     if provider == "anthropic":
         ok = _importable("anthropic")
-        add(Check(OK if ok else FAIL, "brain", f"Anthropic, model {settings.anthropic_model}, key {settings.masked(settings.anthropic_api_key)}",
+        ws = f", workspace {settings.anthropic_workspace_id}" if settings.anthropic_workspace_id else ""
+        add(Check(OK if ok else FAIL, "brain", f"Anthropic, model {settings.anthropic_model}, key {settings.masked(settings.anthropic_api_key)}{ws}",
                   "" if ok else "pip install anthropic"))
     elif provider == "openai":
         ok = _importable("openai")
@@ -72,19 +73,32 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
     else:
         add(Check(WARN, "brain", "no LLM configured: classic keyword mode",
                   "set ANTHROPIC_API_KEY or OPENAI_API_KEY in .env, or install and run Ollama"))
-    if online and provider in {"anthropic", "openai", "ollama"}:
-        try:
-            from .brain.factory import make_llm
-            llm = make_llm(settings, provider)
-            models = llm.list_models()
-            configured = {"anthropic": settings.anthropic_model, "openai": settings.openai_model,
-                          "ollama": settings.ollama_model}[provider]
-            present = any(configured in m for m in models)
-            add(Check(OK if present else WARN, "brain-online",
-                      f"{provider} reachable, {len(models)} models; configured model {'found' if present else 'NOT found'}",
-                      "" if present else f"set {provider.upper()}_MODEL to one of: {', '.join(models[:8])}"))
-        except Exception as e:
-            add(Check(FAIL, "brain-online", f"{provider} check failed: {e}"))
+    if online:
+        # Every provider:model the brain may use (all tiers, or the single provider), checked against the live model list.
+        from .brain.factory import make_llm, parse_spec
+
+        wanted: dict[str, set[str]] = {}
+        if settings.uses_tiers():
+            for spec in settings.resolved_tier_specs().values():
+                prov, model = parse_spec(spec)
+                if prov != "keyword":
+                    wanted.setdefault(prov, set()).add(model or "")
+        elif provider != "keyword":
+            wanted[provider] = {""}
+        for prov, models_wanted in wanted.items():
+            try:
+                llm = make_llm(settings, prov)
+                available = llm.list_models()
+            except Exception as e:
+                add(Check(FAIL, "brain-online", f"{prov} check failed: {e}"))
+                continue
+            names = sorted(m or llm.model for m in models_wanted)
+            missing = [m for m in names if not any(m in a for a in available)]
+            if missing:
+                add(Check(WARN, "brain-online", f"{prov} reachable, {len(available)} models; NOT found: {', '.join(missing)}",
+                          f"pick from: {', '.join(available[:8])}"))
+            else:
+                add(Check(OK, "brain-online", f"{prov} reachable; models found: {', '.join(names)}"))
 
     # --- voice
     tts = settings.resolved_tts_provider()

@@ -34,7 +34,8 @@ def make_llm(settings: Settings, provider: str | None = None, model: str | None 
         if not settings.anthropic_api_key:
             raise LLMError("Anthropic is selected but ANTHROPIC_API_KEY is not set.")
         from .anthropic_llm import AnthropicLLM
-        return AnthropicLLM(settings.anthropic_api_key, model or settings.anthropic_model, settings.max_tokens)
+        return AnthropicLLM(settings.anthropic_api_key, model or settings.anthropic_model, settings.max_tokens,
+                            workspace_id=settings.anthropic_workspace_id)
     if provider == "openai":
         if not settings.openai_api_key:
             raise LLMError("OpenAI is selected but OPENAI_API_KEY is not set.")

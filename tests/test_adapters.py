@@ -60,3 +60,17 @@ def test_empty_tool_result_is_never_blank():
     msgs = to_anthropic_messages([Message("user", "x"), Message("assistant", "", [ToolCall("c", "t", {})]),
                                   Message("tool", "", tool_call_id="c", tool_name="t")])
     assert msgs[2]["content"][0]["content"] == "(no output)"
+
+
+def test_anthropic_workspace_header_and_hint():
+    pytest = __import__("pytest")
+    pytest.importorskip("anthropic")
+    from jarvis.brain.anthropic_llm import AnthropicLLM, _explain
+
+    plain = AnthropicLLM("sk-test", "claude-x")
+    assert "anthropic-workspace-id" not in plain._client.default_headers
+    scoped = AnthropicLLM("sk-test", "claude-x", workspace_id="wrkspc_123")
+    assert scoped._client.default_headers["anthropic-workspace-id"] == "wrkspc_123"
+    hint = _explain(RuntimeError("400: This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header"))
+    assert "ANTHROPIC_WORKSPACE_ID" in hint and "wrkspc_" in hint
+    assert _explain(RuntimeError("rate limited")) == "Anthropic request failed: rate limited"

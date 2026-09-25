@@ -24,6 +24,12 @@ else
   .venv/bin/python -m pip install -e ".[all,dev]"
 fi
 
+# uv marks .venv (and everything in it) with the macOS "hidden" file flag, and Python 3.12+ refuses to
+# process hidden .pth files, which silently breaks the editable install outside the repo folder.
+if [ "$(uname)" = "Darwin" ]; then
+  chflags -R nohidden .venv 2>/dev/null || true
+fi
+
 if [ ! -f .env ]; then
   cp .env.example .env
   echo "==> created .env from .env.example; add your keys there"

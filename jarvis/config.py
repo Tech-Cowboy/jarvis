@@ -62,6 +62,7 @@ class Settings:
     # Brain (LLM)
     llm_provider: str = "auto"  # auto | anthropic | openai | ollama | keyword  (pins one provider, no tiers)
     anthropic_api_key: str = ""
+    anthropic_workspace_id: str = ""  # only for organization-level keys (wrkspc_...)
     anthropic_model: str = "claude-haiku-4-5-20251001"  # fast tier
     anthropic_smart_model: str = "claude-sonnet-5"  # smart tier
     openai_api_key: str = ""
@@ -245,6 +246,7 @@ def load_settings() -> Settings:
         honorific=e("HONORIFIC", "sir"),
         llm_provider=e("LLM_PROVIDER", "auto").strip().lower(),
         anthropic_api_key=e("ANTHROPIC_API_KEY", ""),
+        anthropic_workspace_id=e("ANTHROPIC_WORKSPACE_ID", "").strip(),
         anthropic_model=e("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
         anthropic_smart_model=e("ANTHROPIC_SMART_MODEL", "claude-sonnet-5"),
         openai_api_key=e("OPENAI_API_KEY", ""),
