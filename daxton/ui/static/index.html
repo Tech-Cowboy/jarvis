@@ -59,10 +59,20 @@
   @media (max-width: 1180px) {
     #app { grid-template-columns: 260px 1fr 300px; }
   }
-  @media (max-width: 900px) {
-    #app { grid-template-rows: 56px auto auto auto 60px; grid-template-columns: 1fr;
-           grid-template-areas: "head" "core" "left" "right" "foot"; overflow: auto; }
-    body { overflow: auto; }
+  @media (max-width: 900px) {                 /* phones and narrow windows: one column, the core first */
+    html, body { overflow: auto; height: auto; min-height: 100%; }
+    #app { display: flex; flex-direction: column; height: auto; min-height: 100vh; gap: 10px; padding: 10px; }
+    header { order: 0; flex-wrap: wrap; height: auto; padding: 6px 8px 10px; gap: 10px 14px; }
+    #core { order: 1; } #right { order: 2; } #left { order: 3; } footer { order: 4; }  /* the log before the gauges */
+    .brand .name { font-size: 17px; letter-spacing: 0.3em; } .brand .sub { display: none; }
+    #clock { font-size: 20px; min-width: 0; } #date { display: none; }
+    #corewrap { width: min(100%, 78vw, 420px); }
+    #stateword .w { font-size: 20px; }
+    #console { flex-wrap: wrap; justify-content: center; } #console input { flex-basis: 100%; }
+    .panel.grow { flex: none; } #log { max-height: 55vh; min-height: 160px; }
+    footer { flex-wrap: wrap; height: auto; padding: 10px 8px; gap: 10px 16px; }
+    footer .actions { margin-left: 0; flex-wrap: wrap; width: 100%; }
+    #bootlines { min-width: 0; width: min(360px, 88vw); }
   }
 
   /* ---------- header ---------- */
@@ -158,7 +168,7 @@
   #stateword .h { font-family: var(--mono); font-size: 10px; letter-spacing: 0.25em; color: var(--dim); text-transform: uppercase; margin-top: 8px; }
   #stateword.thinking .w { color: var(--amber); text-shadow: 0 0 18px rgba(255,181,71,.6); }
   #stateword.offline .w { color: var(--dim); text-shadow: none; }
-  #console { width: min(640px, 100%); display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+  #console { width: min(760px, 100%); display: flex; gap: 8px; align-items: center; margin-top: 4px; }
   #console input { flex: 1; background: rgba(4, 12, 20, 0.75); border: 1px solid var(--line-strong); color: var(--cyan-bright);
                    font-family: var(--mono); font-size: 13px; padding: 11px 14px; outline: none; letter-spacing: 0.04em; }
   #console input::placeholder { color: var(--dim); }
@@ -218,6 +228,15 @@
   #bootlines .ok { color: var(--green); }
   #bootlines .big { font-size: 20px; font-weight: 200; letter-spacing: 0.5em; color: var(--cyan-bright); margin-bottom: 14px;
                     text-shadow: 0 0 16px rgba(63,208,255,.6); }
+
+  /* ---------- portal (remote voice) ---------- */
+  #audioprompt { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 60; display: none;
+                 background: rgba(8,22,34,.92); border: 1px solid var(--amber); color: var(--amber); font-family: var(--mono);
+                 font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; padding: 10px 16px; cursor: pointer; }
+  #audioprompt.show { display: block; animation: fade .3s ease; }
+  .btn.live { border-color: var(--red); color: #fff; background: rgba(255,84,112,.18); box-shadow: 0 0 14px rgba(255,84,112,.45); }
+  #console select { max-width: 120px; }
+  @media (max-width: 900px) { #console { flex-wrap: wrap; } #console input { flex-basis: 100%; } }
 </style>
 </head>
 <body>
@@ -241,7 +260,9 @@
     <div class="link"><span class="dot" id="linkdot"></span><span id="linktext">link down</span></div>
     <div><div id="clock">00:00:00</div><div id="date"></div></div>
     <button class="iconbtn" id="fsbtn" title="Full screen">&#x26F6;</button>
+    <button class="iconbtn" id="logoutbtn" title="Sign out" style="display:none">&#x23FB;</button>
   </header>
+  <button id="audioprompt" type="button">tap to enable audio playback</button>
 
   <div class="col" id="left">
     <section class="panel">
@@ -286,7 +307,11 @@
     <div id="console">
       <input id="input" type="text" placeholder="type a request, or press space to talk" autocomplete="off" spellcheck="false">
       <button class="btn" id="sendbtn">Send</button>
-      <button class="btn" id="talkbtn" title="Push to talk (space)">&#9679; Talk</button>
+      <button class="btn" id="talkbtn" title="Talk: click to start, click again or go quiet to stop (hold space)">&#9679; Talk</button>
+      <select class="btn" id="micsrc" title="Which microphone the Talk button uses">
+        <option value="browser">mic: here</option><option value="mac">mic: mac</option>
+      </select>
+      <button class="btn" id="audiobtn" title="Play the voice in this browser">Audio off</button>
       <button class="btn danger" id="stopbtn" title="Stop speaking (esc)">&#9632;</button>
     </div>
     <div id="hintline">say "daxton" in a sentence, or press space</div>
@@ -308,7 +333,8 @@
         <option value="auto">tier: auto</option><option value="free">tier: free</option>
         <option value="fast">tier: fast</option><option value="smart">tier: smart</option>
       </select>
-      <button class="btn small" id="mutebtn">Mute</button>
+      <button class="btn small" id="mutebtn" title="Stop listening on the Mac's microphone">Mute</button>
+      <button class="btn small on" id="spkbtn" title="Play replies on the Mac's own speakers">Mac speakers</button>
       <button class="btn small" id="newbtn" title="Forget the conversation">New conv.</button>
       <button class="btn small" data-skill="take_screenshot">Screenshot</button>
       <button class="btn small" data-skill="battery_status">Battery</button>
@@ -324,7 +350,10 @@
   const S = {
     state: "offline", snapshot: null, connected: false, level: 0, bands: new Array(16).fill(0), source: "mic",
     telemetry: null, net: [], lastRoute: null, muted: false, pinned: null, stats: {}, activeTier: null, booted: false,
+    localAudio: true,
   };
+  // portal: is this page served somewhere other than the Mac itself?
+  const isRemote = !["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname);
 
   // ------------------------------------------------------------ boot sequence
   const bootLines = ["DAXTON AI", "initialising systems", "audio pipeline", "brain tiers", "telemetry", "link"];
@@ -360,13 +389,21 @@
   function connect() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws`);
-    ws.onopen = () => { S.connected = true; backoff = 500; setLink(true); finishBoot(true); };
-    ws.onclose = () => { S.connected = false; setLink(false); setState("offline"); setTimeout(connect, backoff); backoff = Math.min(backoff * 1.7, 8000); };
+    ws.binaryType = "arraybuffer";
+    ws.onopen = () => { S.connected = true; backoff = 500; setLink(true); finishBoot(true); send({ cmd: "audio", value: A.audioOn }); };
+    ws.onclose = (e) => {
+      S.connected = false; setLink(false); setState("offline"); stopCapture(false);
+      if (e.code === 4401) { location.href = "/login?next=" + encodeURIComponent(location.pathname); return; }
+      setTimeout(connect, backoff); backoff = Math.min(backoff * 1.7, 8000);
+    };
     ws.onerror = () => ws.close();
-    ws.onmessage = (m) => { let ev; try { ev = JSON.parse(m.data); } catch { return; } onEvent(ev); };
+    ws.onmessage = (m) => {
+      if (m.data instanceof ArrayBuffer) { onAudioChunk(m.data); return; }
+      let ev; try { ev = JSON.parse(m.data); } catch { return; } onEvent(ev);
+    };
   }
   const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
-  function setLink(on) { $("linkdot").classList.toggle("on", on); $("linktext").textContent = on ? "link up" : "link down"; }
+  function setLink(on) { $("linkdot").classList.toggle("on", on); $("linktext").textContent = on ? (isRemote ? "link up · remote" : "link up") : "link down"; }
 
   // ------------------------------------------------------------ events
   let lastAudioAt = 0;
@@ -379,7 +416,14 @@
       case "route": S.lastRoute = ev; setActiveTier(ev.tier); attachRoute(ev); renderRoute(ev); break;
       case "pinned": S.pinned = ev.tier; $("tierpin").value = ev.tier || "auto"; renderTiers(); break;
       case "muted": S.muted = ev.value; $("mutebtn").classList.toggle("on", S.muted); $("mutebtn").textContent = S.muted ? "Unmute" : "Mute"; break;
-      case "ack": if (ev.ok === false && ev.error) appendLog({ type: "error", text: ev.error, ts: Date.now() / 1000 }); break;
+      case "local_audio": S.localAudio = ev.value; $("spkbtn").classList.toggle("on", S.localAudio); break;
+      case "speech_start": onSpeechStart(ev); break;
+      case "speech_end": if (ev.interrupted) stopPlayback(); break;
+      case "voice": if (ev.status === "end") { stopCapture(false); if (!ev.speech) appendLog({ type: "heard", note: "no speech heard from this device", ts: Date.now() / 1000 }); } break;
+      case "ack":
+        if (ev.cmd === "voice_start" && ev.ok === false) stopCapture(false);
+        if (ev.ok === false && ev.error) appendLog({ type: "error", text: ev.error, ts: Date.now() / 1000 });
+        break;
       case "user": case "assistant": case "tool": case "error": case "notice": case "wake": case "heard": case "online":
         appendLog(ev); break;
     }
@@ -395,8 +439,17 @@
     $("sys-skills").textContent = `${s.skills.length} loaded`; $("sys-skills").title = s.skills.map((k) => k.name).join(", ");
     $("tierpin").value = s.pinned || "auto";
     $("mutebtn").classList.toggle("on", S.muted); $("mutebtn").textContent = S.muted ? "Unmute" : "Mute";
-    $("talkbtn").disabled = !s.voice_mode;
-    $("hintline").textContent = s.voice_mode ? (s.wake_mode === "name" ? `say "${(s.assistant_name || "daxton").toLowerCase()}" in a sentence, or press space to talk` : `say "${s.wake_phrase || "hey " + (s.assistant_name || "daxton").toLowerCase()}" or press space to talk`) : "text mode: type a request and press enter";
+    S.localAudio = s.local_audio !== false; $("spkbtn").classList.toggle("on", S.localAudio);
+    $("logoutbtn").style.display = s.auth ? "" : "none";
+    // microphone source: away from the Mac (or without a Mac mic) the page's own microphone; at the Mac, the Mac's
+    const canBrowserMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    $("micsrc").querySelector('[value="mac"]').disabled = !s.voice_mode;
+    $("micsrc").querySelector('[value="browser"]').disabled = !canBrowserMic;
+    if (!A.micChosen) A.micMode = (isRemote || !s.voice_mode) && canBrowserMic ? "browser" : (s.voice_mode ? "mac" : "browser");
+    $("micsrc").value = A.micMode;
+    $("talkbtn").disabled = A.micMode === "mac" ? !s.voice_mode : !canBrowserMic;
+    $("mutebtn").disabled = !s.voice_mode;
+    renderHint();
     renderTiers(); renderStats(); renderRoute(null);
     $("log").innerHTML = "";
     (s.history || []).forEach((ev) => { if (ev.type === "route") { attachRoute(ev); renderRoute(ev); } else appendLog(ev, true); });
@@ -440,8 +493,15 @@
     const pill = $("statepill"); pill.className = "pill " + s; pill.textContent = s;
     const sw = $("stateword"); sw.className = s;
     let hint = STATE_HINT[s] || "";
-    if (s === "idle" && S.snapshot) hint = !S.snapshot.voice_mode ? "awaiting a request" : S.snapshot.wake_mode === "name" ? `listening for "${(S.snapshot.assistant_name || "").toLowerCase()}"` : S.snapshot.wake_mode === "push_to_talk" ? "press space to talk" : "awaiting wake word";
+    if (s === "idle" && S.snapshot) hint = A.micMode === "browser" ? "press talk or hold space" : !S.snapshot.voice_mode ? "awaiting a request" : S.snapshot.wake_mode === "name" ? `listening for "${(S.snapshot.assistant_name || "").toLowerCase()}"` : S.snapshot.wake_mode === "push_to_talk" ? "press space to talk" : "awaiting wake word";
+    if (s === "listening" && A.capturing) hint = "capturing this device's microphone";
     $("stateword-w").textContent = STATE_WORD[s] || s.toUpperCase(); $("stateword-h").textContent = hint;
+  }
+  function renderHint() {
+    const s = S.snapshot; if (!s) return;
+    const name = (s.assistant_name || "daxton").toLowerCase();
+    if (A.micMode === "browser") $("hintline").textContent = "press talk (or hold space) and speak into this device";
+    else $("hintline").textContent = s.voice_mode ? (s.wake_mode === "name" ? `say "${name}" in a sentence, or press space to talk` : `say "${s.wake_phrase || "hey " + name}" or press space to talk`) : "text mode: type a request and press enter";
   }
 
   // ------------------------------------------------------------ log
@@ -564,23 +624,122 @@
     for (let i = 0; i < 16; i++) S.bands[i] = speakNoPcm ? 0.25 + 0.5 * Math.abs(Math.sin(Date.now() / 90 + i)) * Math.random() : S.bands[i] * 0.85;
     if (speakNoPcm) S.level = 0.06; }, 60);
 
+  // ------------------------------------------------------------ portal voice: this device's microphone in
+  const RATE = 16000, FRAME = 1280; // 80 ms frames, what the Mac's own microphone delivers
+  const A = { ctx: null, outCtx: null, stream: null, node: null, capturing: false, sending: false, nat: new Float32Array(0),
+              ratio: 1, micMode: "browser", micChosen: false, audioOn: isRemote, playRate: 24000, next: 0, sources: [] };
+  async function startCapture() {
+    if (A.capturing) { stopCapture(true); return; }
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+      appendLog({ type: "error", text: "this browser cannot use the microphone here (it needs https or localhost)", ts: Date.now() / 1000 }); return; }
+    try {
+      if (!A.stream) A.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (!A.ctx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        try { A.ctx = new AC({ sampleRate: RATE }); } catch { A.ctx = new AC(); }
+        A.ratio = A.ctx.sampleRate / RATE;
+        const src = A.ctx.createMediaStreamSource(A.stream);
+        if (A.ctx.audioWorklet) {
+          const code = 'class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice());return true}}registerProcessor("pcm-tap",T)';
+          await A.ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([code], { type: "application/javascript" })));
+          A.node = new AudioWorkletNode(A.ctx, "pcm-tap", { numberOfInputs: 1, numberOfOutputs: 0 });
+          A.node.port.onmessage = (e) => onCaptured(e.data);
+          src.connect(A.node);
+        } else { // older WebKit: ScriptProcessor, routed through a silent gain so it keeps running
+          A.node = A.ctx.createScriptProcessor(2048, 1, 1);
+          A.node.onaudioprocess = (e) => onCaptured(e.inputBuffer.getChannelData(0).slice());
+          const mute = A.ctx.createGain(); mute.gain.value = 0;
+          src.connect(A.node); A.node.connect(mute); mute.connect(A.ctx.destination);
+        }
+      }
+      if (A.ctx.state !== "running") await A.ctx.resume();
+      ensureOut();
+      A.nat = new Float32Array(0); A.capturing = true; A.sending = true;
+      send({ cmd: "voice_start", rate: RATE });
+      $("talkbtn").classList.add("live"); $("talkbtn").innerHTML = "&#9679; Listening";
+      setState("listening");
+    } catch (e) {
+      appendLog({ type: "error", text: "microphone: " + (e && e.message ? e.message : e), ts: Date.now() / 1000 });
+      stopCapture(false);
+    }
+  }
+  function stopCapture(tellServer) {
+    const was = A.capturing;
+    A.capturing = false; A.sending = false;
+    $("talkbtn").classList.remove("live"); $("talkbtn").innerHTML = "&#9679; Talk";
+    if (was && tellServer) send({ cmd: "voice_end" });
+  }
+  function onCaptured(f32) {
+    if (!A.sending) return;
+    const joined = new Float32Array(A.nat.length + f32.length); joined.set(A.nat); joined.set(f32, A.nat.length);
+    const n = A.ratio === 1 ? joined.length : Math.floor((joined.length - 1) / A.ratio);
+    const frames = Math.floor(n / FRAME);
+    if (!frames) { A.nat = joined; return; }
+    const out = new Int16Array(frames * FRAME);
+    for (let i = 0; i < out.length; i++) {
+      let v;
+      if (A.ratio === 1) v = joined[i];
+      else { const p = i * A.ratio, j = Math.floor(p), t = p - j; v = joined[j] * (1 - t) + joined[j + 1] * t; }
+      out[i] = Math.max(-32768, Math.min(32767, Math.round(v * 32767)));
+    }
+    const used = A.ratio === 1 ? out.length : Math.floor(out.length * A.ratio);
+    A.nat = joined.slice(used);
+    if (ws && ws.readyState === 1) for (let f = 0; f < frames; f++) ws.send(out.slice(f * FRAME, (f + 1) * FRAME).buffer);
+  }
+
+  // ------------------------------------------------------------ portal voice: the assistant's voice out
+  function ensureOut() {
+    if (!A.outCtx) A.outCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (A.outCtx.state !== "running") A.outCtx.resume().catch(() => {});
+    return A.outCtx;
+  }
+  function onSpeechStart(ev) { A.playRate = ev.rate || 24000; }
+  function onAudioChunk(ab) {
+    if (!A.audioOn) return;
+    const ctx = ensureOut();
+    if (ctx.state !== "running") { $("audioprompt").classList.add("show"); return; }
+    $("audioprompt").classList.remove("show");
+    const i16 = new Int16Array(ab); if (!i16.length) return;
+    const buf = ctx.createBuffer(1, i16.length, A.playRate); const ch = buf.getChannelData(0);
+    for (let i = 0; i < i16.length; i++) ch[i] = i16[i] / 32768;
+    const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+    const t = Math.max(ctx.currentTime + 0.08, A.next); src.start(t); A.next = t + buf.duration;
+    A.sources.push(src); src.onended = () => { const i = A.sources.indexOf(src); if (i >= 0) A.sources.splice(i, 1); };
+  }
+  function stopPlayback() { A.sources.forEach((s) => { try { s.stop(); } catch (e) {} }); A.sources = []; A.next = 0; }
+  function setAudio(on) {
+    A.audioOn = on; $("audiobtn").classList.toggle("on", on); $("audiobtn").textContent = on ? "Audio on" : "Audio off";
+    if (on) ensureOut(); else stopPlayback();
+    send({ cmd: "audio", value: on });
+  }
+  $("audioprompt").onclick = () => { ensureOut(); $("audioprompt").classList.remove("show"); };
+  document.addEventListener("pointerdown", () => { if (A.audioOn && A.outCtx && A.outCtx.state !== "running") ensureOut(); }, true);
+
   // ------------------------------------------------------------ controls
   function sendText() { const v = $("input").value.trim(); if (!v) return; $("input").value = ""; send({ cmd: "say", text: v }); }
+  function talk() { if (A.micMode === "browser") startCapture(); else send({ cmd: "talk" }); }
   $("sendbtn").onclick = sendText;
   $("input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendText(); e.stopPropagation(); });
-  $("talkbtn").onclick = () => send({ cmd: "talk" });
-  $("stopbtn").onclick = () => send({ cmd: "stop_speaking" });
+  $("talkbtn").onclick = talk;
+  $("micsrc").onchange = (e) => { A.micChosen = true; A.micMode = e.target.value; stopCapture(true); $("talkbtn").disabled = false; renderHint(); setState(S.state); };
+  $("audiobtn").onclick = () => setAudio(!A.audioOn);
+  $("stopbtn").onclick = () => { stopPlayback(); send({ cmd: "stop_speaking" }); };
   $("mutebtn").onclick = () => send({ cmd: "mute", value: !S.muted });
+  $("spkbtn").onclick = () => send({ cmd: "local_audio", value: !S.localAudio });
   $("newbtn").onclick = () => send({ cmd: "new_conversation" });
+  $("logoutbtn").onclick = () => { location.href = "/logout"; };
   $("tierpin").onchange = (e) => send({ cmd: "pin_tier", tier: e.target.value === "auto" ? null : e.target.value });
   document.querySelectorAll("[data-skill]").forEach((b) => { b.onclick = () => send({ cmd: "run_skill", name: b.dataset.skill, args: {} }); });
   $("fsbtn").onclick = () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); };
   document.addEventListener("keydown", (e) => {
-    if (e.target === $("input")) return;
-    if (e.code === "Space") { e.preventDefault(); send({ cmd: "talk" }); }
-    else if (e.key === "Escape") send({ cmd: "stop_speaking" });
+    if (e.target === $("input") || e.target.tagName === "SELECT") return;
+    if (e.code === "Space") { e.preventDefault(); if (e.repeat) return; A.spaceDownAt = Date.now(); if (A.micMode === "browser") { if (!A.capturing) startCapture(); } else send({ cmd: "talk" }); }
+    else if (e.key === "Escape") { stopPlayback(); send({ cmd: "stop_speaking" }); }
     else if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) { $("input").focus(); $("input").value += e.key; e.preventDefault(); }
   });
+  // space held: talk while it is down; space tapped: keep listening until you go quiet
+  document.addEventListener("keyup", (e) => { if (e.code === "Space" && A.micMode === "browser" && A.capturing && e.target !== $("input") && Date.now() - (A.spaceDownAt || 0) > 350) stopCapture(true); });
+  setAudio(A.audioOn);
   window.addEventListener("resize", drawNet);
   connect();
 })();

@@ -1,8 +1,9 @@
 """A small thread-safe event bus: the assistant publishes, the dashboard (and tests) subscribe.
 
 Events are plain dicts with a "type" and a "ts". High-rate events ("audio",
-"telemetry") are not kept in the replay history; everything else is, so a
-dashboard that connects late still sees the recent transcript.
+"telemetry", the spoken PCM in "speech_chunk") are not kept in the replay
+history; everything else is, so a dashboard that connects late still sees the
+recent transcript.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import time
 from collections import deque
 from typing import Any
 
-TRANSIENT = {"audio", "telemetry"}
+TRANSIENT = {"audio", "telemetry", "speech_chunk", "speech_end"}
 
 
 class EventBus:

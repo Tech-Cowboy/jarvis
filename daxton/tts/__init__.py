@@ -11,6 +11,8 @@ from ..config import Settings
 class Speaker(ABC):
     name: str = "tts"
     on_chunk = None  # optional callable(pcm16_bytes, sample_rate) fed while audio plays (dashboard visualiser)
+    pcm_wanted = None  # optional callable() -> bool: is anyone listening to on_chunk right now? (dashboards open)
+    silent = False   # True: keep the Mac's speakers quiet but still pace the PCM through on_chunk (remote listeners)
 
     @abstractmethod
     def say(self, text: str) -> None:

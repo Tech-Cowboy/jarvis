@@ -20,15 +20,17 @@ def stop_playback() -> None:
     _stop_requested.set()
 
 
-def play_pcm16_stream(chunks: Iterable[bytes], sample_rate: int, on_chunk=None) -> bytes:
-    """Play a stream of raw 16-bit mono PCM chunks as they arrive. Returns all bytes played (for caching)."""
-    import sounddevice as sd
+def play_pcm16_stream(chunks: Iterable[bytes], sample_rate: int, on_chunk=None, silent: bool = False) -> bytes:
+    """Play a stream of raw 16-bit mono PCM chunks as they arrive. Returns all bytes played (for caching).
 
+    With silent=True nothing reaches the speakers, but the chunks are still paced in real time and
+    handed to on_chunk, so a dashboard listening remotely hears the voice while the Mac stays quiet.
+    """
     played = bytearray()
     leftover = b""
     with playback_lock:
         _stop_requested.clear()
-        with sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16") as stream:
+        with _output(sample_rate, silent) as stream:
             for chunk in chunks:
                 if _stop_requested.is_set():
                     stream.abort()
@@ -48,10 +50,39 @@ def play_pcm16_stream(chunks: Iterable[bytes], sample_rate: int, on_chunk=None) 
     return bytes(played)
 
 
-def play_pcm16_bytes(data: bytes, sample_rate: int, on_chunk=None, chunk_bytes: int = 4800) -> None:
+def play_pcm16_bytes(data: bytes, sample_rate: int, on_chunk=None, chunk_bytes: int = 4800, silent: bool = False) -> None:
     """Play a whole PCM buffer in small chunks so it stays interruptible and the analyser sees it."""
     chunks = (data[i:i + chunk_bytes] for i in range(0, len(data), chunk_bytes))
-    play_pcm16_stream(chunks, sample_rate, on_chunk=on_chunk)
+    play_pcm16_stream(chunks, sample_rate, on_chunk=on_chunk, silent=silent)
+
+
+class _SilentOutput:
+    """Stands in for a sounddevice output stream: sleeps for each chunk's duration instead of playing it."""
+
+    def __init__(self, sample_rate: int):
+        self.sample_rate = sample_rate
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def write(self, data: bytes) -> None:
+        import time
+
+        time.sleep(len(data) / 2 / self.sample_rate)
+
+    def abort(self) -> None:
+        pass
+
+
+def _output(sample_rate: int, silent: bool):
+    if silent:
+        return _SilentOutput(sample_rate)
+    import sounddevice as sd
+
+    return sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16")
 
 
 def play_float32(samples: np.ndarray, sample_rate: int) -> None:

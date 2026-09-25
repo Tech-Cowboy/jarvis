@@ -75,8 +75,10 @@ microphone and voice spectrum; the log shows every request, tool call and reply 
 model); the Router panel shows the complexity score and the reasons behind the last routing decision; Systems shows
 the three tiers with live highlighting and per-tier counts; Telemetry shows CPU, memory, disk, battery, load, network
 and uptime from the machine. Controls: type a request and press Enter, `space` for push-to-talk, `Esc` to stop it
-mid-sentence, mute, pin a tier, clear the conversation, and one-click skills (screenshot, battery, timers). It is a
-single self-contained HTML file with no external assets, so it works offline and in any modern browser.
+mid-sentence, mute, pin a tier, clear the conversation, and one-click skills (screenshot, battery, timers). The
+`mic:` selector chooses whether Talk uses the Mac's microphone or the browser's own (see "The portal"), `Audio` plays
+the voice in the browser, and `Mac speakers` decides whether the Mac plays it too. It is a single self-contained HTML
+file with no external assets, so it works offline and in any modern browser, phones included.
 
 The look is an original holographic command-center design in the classic movie-AI spirit: cyan and amber on dark,
 concentric rings, ticks, scan lines. Fonts are the system's own, so nothing is fetched from the internet.
@@ -84,8 +86,38 @@ concentric rings, ticks, scan lines. Fonts are the system's own, so nothing is f
 Under the hood: `daxton/events.py` is a thread-safe event bus the assistant publishes to (state, transcript, tool,
 route, audio analysis at 12 Hz, telemetry at 1 Hz); `daxton/ui/server.py` is a FastAPI app with a WebSocket that
 streams the bus to every open dashboard and accepts commands (`say`, `talk`, `stop_speaking`, `pin_tier`, `mute`,
-`new_conversation`, `run_skill`); `GET /api/state` returns a snapshot and `POST /api/command` runs a command, so
-anything else (a Stream Deck button, a shortcut, another app) can drive the assistant too.
+`local_audio`, `new_conversation`, `run_skill`); `GET /api/state` returns a snapshot and `POST /api/command` runs a
+command, so anything else (a Stream Deck button, a shortcut, another app) can drive the assistant too. The same socket
+carries voice both ways for the portal: binary PCM frames in from a browser microphone, the spoken reply out.
+
+## The portal: Daxton from anywhere
+
+The dashboard can be published on your own domain so you can talk to Daxton from your phone or any browser, with the
+Mac at home doing the work. Full walkthrough in [`docs/portal.md`](docs/portal.md); the short version:
+
+```bash
+# 1. a login for the dashboard (12+ characters; without it, only the Mac itself is ever served)
+echo 'DASHBOARD_PASSWORD=correct horse battery staple' >> .env
+echo 'PUBLIC_HOSTNAME=daxton.example.com' >> .env
+
+# 2. a Cloudflare Tunnel from the Mac to that hostname (the domain must be on Cloudflare DNS)
+daxton tunnel setup daxton.example.com     # installs cloudflared, logs in, creates the tunnel, routes DNS,
+                                           # writes ~/.cloudflared/config.yml, installs it as a login service
+# 3. keep the assistant running
+daxton service install                     # `daxton ui` at login, restarted if it stops (macOS launchd)
+```
+
+Then open `https://daxton.example.com` on your phone: Cloudflare Access (set up in step 4 of the walkthrough) asks
+who you are, Daxton asks for its password, and the HUD appears. Press **Talk** and speak into the phone: the audio
+streams to the Mac, Whisper transcribes it there, the brain answers, and the reply plays in the browser in the Daxton
+voice (and on the Mac too, unless you switch `Mac speakers` off). Everything the Mac hears through its own microphone
+shows up on the phone as well, so the portal is a window onto the same assistant, not a second one.
+
+Security, in one paragraph: no port is opened on the Mac (cloudflared dials out); the hostname is behind Cloudflare
+Access, so only your email gets to the login page; the dashboard's own password is the second lock, sessions are
+signed HttpOnly cookies that die when you change the password, failed logins are throttled, cross-site requests and
+sockets are refused, and without `DASHBOARD_PASSWORD` the server refuses anything that did not come from the Mac
+itself, whatever the tunnel forwards. Browser microphones need HTTPS, which the tunnel provides.
 
 ## Free by default, smarter when it matters
 
@@ -126,6 +158,8 @@ keyword rules; without it, anything the rules cannot parse goes straight to the 
 | `daxton say "Good evening, sir."` | Test the configured voice. |
 | `daxton listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
 | `daxton ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
+| `daxton tunnel setup <host>` | Publish the dashboard at `https://<host>` through a Cloudflare Tunnel (`run` for a foreground test, `status` to check). |
+| `daxton service install` | Keep `daxton ui` running at login (macOS launchd agent); `uninstall`, `status`. |
 | `daxton rate "..."` | Show the complexity score, the reasons, and which tier and model would take the request. |
 | `daxton doctor [--online]` | Check every stage; `--online` also calls the LLM and ElevenLabs APIs. |
 | `daxton devices` | List microphones (set `MIC_DEVICE` in `.env`). |
@@ -198,7 +232,11 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 | `MIN_SPEECH_RMS`, `SILENCE_SECONDS`, `MAX_UTTERANCE_SECONDS`, `LISTEN_TIMEOUT_SECONDS` | `0.010, 1.2, 15, 8` | Voice activity tuning. The mic calibrates to room noise at startup. |
 | `ASSISTANT_NAME`, `PRODUCT_NAME`, `USER_NAME`, `HONORIFIC` | `Daxton`, `Daxton AI`, empty, `sir` | Persona and branding. |
 | `HISTORY_TURNS`, `MAX_TOOL_ROUNDS`, `MAX_TOKENS` | `8, 6, 400` | Conversation memory, tool chaining depth, reply length. |
-| `DAXTON_DATA_DIR` | `~/.daxton` | Notes and the voice cache. |
+| `DASHBOARD_PASSWORD` | empty | Login for the dashboard. Empty: only the Mac's own browser is served. Set: every page, API call and socket needs the session cookie. Changing it signs everyone out. |
+| `DASHBOARD_SECRET`, `DASHBOARD_SESSION_DAYS` | generated, `30` | Cookie signing secret (else one is generated into `~/.daxton/dashboard.secret`) and session length. |
+| `DASHBOARD_HOST`, `DASHBOARD_PORT` | `127.0.0.1`, `8765` | Where `daxton ui` listens; the tunnel forwards to this port. |
+| `PUBLIC_HOSTNAME`, `TUNNEL_NAME` | empty, `daxton` | The portal hostname (`daxton tunnel setup` default, WebSocket origin check) and the cloudflared tunnel name. |
+| `DAXTON_DATA_DIR` | `~/.daxton` | Notes, the voice cache, the dashboard secret and service logs. |
 | `LOG_LEVEL` | `WARNING` | `INFO` shows tool calls and timings; `-v` on the command line is `DEBUG`. |
 
 `.env` is read from the current directory and from `~/.config/daxton/.env` (so `daxton` works from any folder).
@@ -229,7 +267,7 @@ only knows the built-in patterns; new skills are reachable through an LLM brain 
 
 ```
 daxton/
-  cli.py            commands (run, chat, ask, say, listen, ui, rate, doctor, devices, voices, skills, download-models)
+  cli.py            commands (run, chat, ask, say, listen, ui, tunnel, service, rate, doctor, devices, voices, ...)
   events.py         thread-safe event bus (the dashboard's feed)
   config.py         Settings from .env / environment; provider auto-selection
   assistant.py      the loop: wake -> record -> transcribe -> router -> speak
@@ -238,13 +276,15 @@ daxton/
                     analysis.py (level + 16-band spectrum for the HUD)
   wake/             oww.py (openWakeWord), simple.py (push-to-talk, always-listening)
   stt/              whisper_local.py (faster-whisper), google_sr.py (SpeechRecognition)
-  tts/              elevenlabs_tts.py (streaming + phrase cache), macos_say.py, console.py
+  tts/              elevenlabs_tts.py (streaming + phrase cache), macos_say.py (rendered to PCM when tapped), console.py
+  tunnel.py         the portal: cloudflared setup and the launchd service for `daxton ui`
   brain/            base.py (neutral Message/ToolSpec types), router.py (tool loop), prompts.py,
                     rating.py (complexity score -> tier), tiered.py (free -> fast -> smart with escalation),
                     anthropic_llm.py, openai_llm.py, ollama_llm.py, keyword_brain.py, factory.py
   skills/           registry.py (@skill), apps.py, web.py, system.py, files.py, notes.py, timers.py, control.py
-  ui/               server.py (FastAPI + WebSocket + telemetry), static/index.html (the HUD)
-tests/              140+ tests, no network, no audio hardware needed:  pytest
+  ui/               server.py (FastAPI + WebSocket + telemetry), auth.py (login, sessions), voice.py (browser
+                    microphone in, voice out), static/index.html (the HUD), static/login.html
+tests/              180+ tests, no network, no audio hardware needed:  pytest
 scripts/            setup_mac.sh
 ```
 
@@ -266,6 +306,11 @@ schema.
 - **ElevenLabs errors**: `daxton doctor --online` verifies the key and lists voices. Free-tier accounts have a monthly
   character quota; `TTS_CACHE` keeps repeated phrases free.
 - **No LLM key**: everything still works in keyword mode (`daxton --llm keyword`), which is the classic experience.
+- **The portal shows "Local only"**: `DASHBOARD_PASSWORD` is not set in the `.env` the running `daxton ui` loaded;
+  set it and restart. **Talk does nothing on the phone**: the page needs HTTPS for the microphone (the tunnel gives
+  it; plain `http://<lan-ip>` does not) and the first tap must be yours (browsers block audio until you interact).
+  **No sound on the phone**: tap the "enable audio" prompt or the `Audio` button once. `daxton tunnel status` and
+  `daxton doctor` show what is missing.
 - **Python 3.14**: some audio wheels lag new Python releases; the setup script pins 3.12 through `uv`.
 - **`ModuleNotFoundError: No module named 'daxton'` when running `daxton` from another folder**: Python 3.12+ skips
   `.pth` files that carry the macOS hidden flag, so the editable install goes invisible. `uv` sets the flag on

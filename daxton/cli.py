@@ -151,9 +151,20 @@ def cmd_ui(settings: Settings, args: argparse.Namespace) -> int:
     if assistant is None:
         settings.tts_provider = settings.tts_provider if args.tts else settings.resolved_tts_provider()
         assistant = _build_assistant(settings, voice=False)
-    url = f"http://{args.host}:{args.port}"
-    run_server(assistant, host=args.host, port=args.port)
+        if settings.dashboard_password:  # the portal will send voice: warm the speech-to-text model now
+            import threading
+
+            threading.Thread(target=_warm_ears, args=(assistant,), name="daxton-ears", daemon=True).start()
+    host = args.host or settings.dashboard_host
+    port = args.port or settings.dashboard_port
+    url = f"http://{host}:{port}"
+    run_server(assistant, host=host, port=port)
     print(f"Dashboard: {url}")
+    if settings.dashboard_password:
+        print("Login required (DASHBOARD_PASSWORD is set)." + (f" Portal: https://{settings.public_hostname}"
+                                                              if settings.public_hostname else ""))
+    elif host not in ("127.0.0.1", "localhost", "::1"):
+        print("Note: without DASHBOARD_PASSWORD only this Mac's own browser is served, whatever --host says.")
     if not args.no_browser:
         print(f"Opened in {open_dashboard(url, app_window=args.app)}.")
     if voice:
@@ -167,6 +178,43 @@ def cmd_ui(settings: Settings, args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print()
     return 0
+
+
+def _warm_ears(assistant) -> None:
+    try:
+        assistant.ensure_transcriber()
+    except Exception as e:  # no whisper/google available: remote voice will report it when used
+        logging.getLogger(__name__).warning("speech-to-text not available for the portal: %s", e)
+
+
+def cmd_tunnel(settings: Settings, args: argparse.Namespace) -> int:
+    """Publish the dashboard on your own domain through a Cloudflare Tunnel."""
+    from . import tunnel
+
+    try:
+        if args.action == "setup":
+            return tunnel.setup(settings, args.hostname, port=args.port, name=args.name, no_service=args.no_service)
+        if args.action == "run":
+            return tunnel.run(settings, name=args.name)
+        return tunnel.status(settings)
+    except tunnel.TunnelError as e:
+        print(f"tunnel: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_service(settings: Settings, args: argparse.Namespace) -> int:
+    """Keep `daxton ui` running at login (macOS launchd)."""
+    from . import tunnel
+
+    try:
+        if args.action == "install":
+            return tunnel.service_install(settings, host=args.host, port=args.port)
+        if args.action == "uninstall":
+            return tunnel.service_uninstall(settings)
+        return tunnel.service_status(settings)
+    except tunnel.TunnelError as e:
+        print(f"service: {e}", file=sys.stderr)
+        return 1
 
 
 def cmd_doctor(settings: Settings, args: argparse.Namespace) -> int:
@@ -258,12 +306,24 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_say)
     sub.add_parser("listen", help="record one utterance and print the transcript").set_defaults(func=cmd_listen)
     u = sub.add_parser("ui", help="open the dashboard (voice mode plus a live web HUD)")
-    u.add_argument("--host", default="127.0.0.1")
-    u.add_argument("--port", type=int, default=8765)
+    u.add_argument("--host", default=None, help="bind address (default DASHBOARD_HOST, 127.0.0.1)")
+    u.add_argument("--port", type=int, default=None, help="port (default DASHBOARD_PORT, 8765)")
     u.add_argument("--no-voice", action="store_true", help="dashboard only, no microphone loop")
     u.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     u.add_argument("--app", action="store_true", help="open as a chromeless app window (Chrome, Brave, Edge)")
     u.set_defaults(func=cmd_ui)
+    t = sub.add_parser("tunnel", help="portal: publish the dashboard on your own domain (Cloudflare Tunnel)")
+    t.add_argument("action", choices=["setup", "run", "status"])
+    t.add_argument("hostname", nargs="?", default="", help="e.g. daxton.example.com (setup; default PUBLIC_HOSTNAME)")
+    t.add_argument("--port", type=int, default=None, help="dashboard port the tunnel forwards to (default DASHBOARD_PORT)")
+    t.add_argument("--name", default=None, help="tunnel name (default TUNNEL_NAME, 'daxton')")
+    t.add_argument("--no-service", action="store_true", help="do not install cloudflared as a login service")
+    t.set_defaults(func=cmd_tunnel)
+    v = sub.add_parser("service", help="keep `daxton ui` running at login (macOS launchd agent)")
+    v.add_argument("action", choices=["install", "uninstall", "status"])
+    v.add_argument("--host", default=None)
+    v.add_argument("--port", type=int, default=None)
+    v.set_defaults(func=cmd_service)
     r = sub.add_parser("rate", help="show the complexity score and tier a request would get")
     r.add_argument("text", nargs="*", help="the request (or pipe lines on stdin)")
     r.set_defaults(func=cmd_rate)

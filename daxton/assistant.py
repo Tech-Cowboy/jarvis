@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 STATES = ("offline", "idle", "listening", "transcribing", "thinking", "speaking")
 
 CLI_COMMANDS = {"run", "chat", "ask", "say", "listen", "rate", "doctor", "devices", "voices", "skills",
-                "download-models", "ui"}
+                "download-models", "ui", "tunnel", "service"}
 
 
 def _looks_like_cli_command(text: str) -> bool:
@@ -69,10 +69,14 @@ class Assistant:
         )
         self._turn_lock = threading.RLock()
         self.show_tools = True
+        self.audio_listeners = 0  # dashboards that asked for the voice as audio (see ui/server.py)
+        self._transcriber_lock = threading.Lock()
+        self._interrupted = False
         # audio hooks for the dashboard visualiser
         if self.mic is not None:
             self.mic.on_frame = self._on_mic_frame
         self.speaker.on_chunk = self._on_speaker_chunk
+        self.speaker.pcm_wanted = lambda: self.bus.subscribers > 0
 
     # ------------------------------------------------------------------ core
     def handle(self, text: str) -> str:
@@ -103,6 +107,7 @@ class Assistant:
         if not text:
             return
         self._set_state("speaking")
+        self._interrupted = False
         try:
             self.speaker.say(text)
         except Exception as e:  # never let a TTS outage kill the loop
@@ -110,13 +115,60 @@ class Assistant:
             self.bus.publish("error", text=f"speech failed: {e}")
             print(f"{self.settings.assistant_name}: {text}")
         finally:
+            if self.bus.subscribers:
+                self.bus.publish("speech_end", interrupted=self._interrupted)
             self._set_state("idle")
 
     def stop_speaking(self) -> None:
+        self._interrupted = True
         try:
             self.speaker.stop()
         except Exception as e:
             log.debug("stop failed: %s", e)
+
+    # ------------------------------------------------------- remote voice
+    @property
+    def local_audio(self) -> bool:
+        """Whether replies play on the Mac's own speakers (they always reach dashboards that asked for audio)."""
+        return not getattr(self.speaker, "silent", False)
+
+    @local_audio.setter
+    def local_audio(self, value: bool) -> None:
+        self.speaker.silent = not value
+        self.bus.publish("local_audio", value=bool(value))
+
+    def ensure_transcriber(self):
+        """The speech-to-text engine, built on first use when the session started without a microphone."""
+        if self.transcriber is None:
+            with self._transcriber_lock:
+                if self.transcriber is None:
+                    from .stt import make_transcriber
+
+                    self.bus.publish("notice", text="loading the speech-to-text model")
+                    self.transcriber = make_transcriber(self.settings)
+        return self.transcriber
+
+    def remote_turn(self, audio, sample_rate: int, source: str = "browser") -> str:
+        """An utterance recorded somewhere else (a browser's microphone): transcribe, answer, speak."""
+        self._set_state("transcribing")
+        try:
+            text = self.ensure_transcriber().transcribe(audio, sample_rate)
+        except Exception as e:
+            log.error("remote transcription failed: %s", e)
+            self.bus.publish("error", text=f"speech-to-text failed: {e}")
+            self._set_state("idle")
+            return ""
+        if not text:
+            self.bus.publish("heard", text="", note=f"nothing intelligible ({source})")
+            self._set_state("idle")
+            return ""
+        if self.hears_name(text):
+            text = self._strip_name(text) or text
+        self.bus.publish("heard", text=text, note=f"{source} mic")
+        print(f"You ({source}): {text}")
+        reply = self.respond(text)
+        print(f"{self.settings.assistant_name}: {reply}")
+        return reply
 
     def routing_summary(self) -> str | None:
         summary = getattr(self.llm, "summary", None)
@@ -149,6 +201,10 @@ class Assistant:
             "wake": self.wake.describe() if self.wake else "none (text mode)",
             "mic": (self.mic.device_spec or "system default") if self.mic else "none",
             "voice_mode": self.mic is not None,
+            "local_audio": self.local_audio,
+            "remote_voice": True,  # browsers may stream their microphone in and receive the voice back
+            "vad": {"min_speech_rms": s.min_speech_rms, "silence_seconds": s.silence_seconds,
+                    "max_utterance_seconds": s.max_utterance_seconds},
             "skills": [{"name": t.name, "description": t.description.splitlines()[0]} for t in self.registry.tool_specs()],
             "stats": dict(stats) if stats is not None else {},
             "history": list(self.bus.history),
@@ -291,8 +347,19 @@ class Assistant:
             return
         from .audio.analysis import analyze, pcm16_bytes_to_samples
 
+        # the voice itself, for dashboards listening remotely (in order with the transcript events)
+        self.bus.publish("speech_chunk", data=bytes(data), rate=sample_rate)
         rms, bands = analyze(pcm16_bytes_to_samples(data), sample_rate)
         self.bus.publish("audio", source="speaker", rms=round(rms, 4), bands=[round(b, 3) for b in bands])
+
+    def on_remote_frame(self, frame, sample_rate: int) -> None:
+        """Level meter for audio arriving from a browser microphone (mirrors _on_mic_frame)."""
+        if self.bus.subscribers == 0:
+            return
+        from .audio.analysis import analyze
+
+        rms, bands = analyze(frame, sample_rate)
+        self.bus.publish("audio", source="mic", rms=round(rms, 4), bands=[round(b, 3) for b in bands])
 
     def _acknowledge(self) -> None:
         ack = self.settings.wake_ack

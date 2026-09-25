@@ -122,6 +122,15 @@ class Settings:
     listen_timeout_seconds: float = 8.0
     min_speech_rms: float = 0.010
 
+    # Dashboard and the portal (remote access)
+    dashboard_host: str = "127.0.0.1"
+    dashboard_port: int = 8765
+    dashboard_password: str = ""  # empty: the dashboard answers the Mac only; set: login required everywhere
+    dashboard_secret: str = ""  # cookie signing secret; empty: generated once into ~/.daxton/dashboard.secret
+    dashboard_session_days: int = 30
+    public_hostname: str = ""  # e.g. daxton.example.com, the name the Cloudflare tunnel publishes
+    tunnel_name: str = "daxton"  # the cloudflared tunnel name
+
     # Skills
     search_max_results: int = 5
     data_dir: Path = field(default_factory=lambda: Path.home() / ".daxton")
@@ -324,6 +333,13 @@ def load_settings() -> Settings:
         max_utterance_seconds=_float(e("MAX_UTTERANCE_SECONDS"), 15.0),
         listen_timeout_seconds=_float(e("LISTEN_TIMEOUT_SECONDS"), 8.0),
         min_speech_rms=_float(e("MIN_SPEECH_RMS"), 0.010),
+        dashboard_host=e("DASHBOARD_HOST", "127.0.0.1").strip() or "127.0.0.1",
+        dashboard_port=_int(e("DASHBOARD_PORT"), 8765),
+        dashboard_password=e("DASHBOARD_PASSWORD", ""),
+        dashboard_secret=e("DASHBOARD_SECRET", ""),
+        dashboard_session_days=_int(e("DASHBOARD_SESSION_DAYS"), 30),
+        public_hostname=e("PUBLIC_HOSTNAME", "").strip().lower().rstrip("."),
+        tunnel_name=e("TUNNEL_NAME", "daxton").strip() or "daxton",
         search_max_results=_int(e("SEARCH_MAX_RESULTS"), 5),
         data_dir=Path(e("DAXTON_DATA_DIR", str(Path.home() / ".daxton"))).expanduser(),
         log_level=e("LOG_LEVEL", "WARNING").upper(),

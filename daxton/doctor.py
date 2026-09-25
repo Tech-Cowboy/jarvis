@@ -176,6 +176,33 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
         for tool in ("open", "osascript", "mdfind", "screencapture", "pmset"):
             if not shutil.which(tool):
                 add(Check(WARN, "macos", f"`{tool}` not found; some skills will not work"))
+
+    # --- dashboard and portal
+    ui_ok = _importable("fastapi") and _importable("uvicorn")
+    add(Check(OK if ui_ok else WARN, "dashboard", f"`daxton ui` on http://{settings.dashboard_host}:{settings.dashboard_port}"
+              if ui_ok else "fastapi/uvicorn missing: no dashboard", "" if ui_ok else "pip install 'daxton-ai[ui]'"))
+    if settings.public_hostname or settings.dashboard_password:
+        from .tunnel import CLOUDFLARED_DIR, find_cloudflared
+
+        if not settings.dashboard_password:
+            add(Check(FAIL, "portal", f"PUBLIC_HOSTNAME={settings.public_hostname} but no DASHBOARD_PASSWORD: remote "
+                      "visitors are refused", "set DASHBOARD_PASSWORD in .env (12+ characters)"))
+        elif len(settings.dashboard_password) < 12:
+            add(Check(WARN, "portal", "DASHBOARD_PASSWORD is shorter than 12 characters",
+                      "use a long passphrase; it is the second lock behind Cloudflare Access"))
+        else:
+            add(Check(OK, "portal", "login required for every page, API call and socket (DASHBOARD_PASSWORD set)"))
+        if settings.public_hostname:
+            config = CLOUDFLARED_DIR / "config.yml"
+            if not find_cloudflared():
+                add(Check(WARN, "tunnel", f"cloudflared not installed; https://{settings.public_hostname} is not published",
+                          f"daxton tunnel setup {settings.public_hostname}"))
+            elif not config.is_file() or settings.public_hostname not in config.read_text(encoding="utf-8"):
+                add(Check(WARN, "tunnel", f"no cloudflared config for {settings.public_hostname}",
+                          f"daxton tunnel setup {settings.public_hostname}"))
+            else:
+                add(Check(OK, "tunnel", f"https://{settings.public_hostname} -> http://127.0.0.1:{settings.dashboard_port} "
+                          f"({config})"))
     return checks
 
 
