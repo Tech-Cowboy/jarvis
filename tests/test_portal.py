@@ -322,3 +322,53 @@ def test_render_say_pcm_reads_the_wav_it_asked_for(monkeypatch):
     monkeypatch.setattr(macos_say.subprocess, "run", fake_run)
     pcm, rate = macos_say.render_say_pcm("Hello there.")
     assert rate == 22050 and len(pcm) == 4410 and pcm[:2] == b"\x01\x00"
+
+
+def test_snapshot_carries_the_portal_address_and_qr(settings, tmp_path):
+    from daxton import tunnel
+
+    a, client = make(settings, password="open sesame")
+    tunnel.quick_log_path(settings).parent.mkdir(parents=True, exist_ok=True)
+    tunnel.quick_log_path(settings).write_text("... https://brave-horse.trycloudflare.com |\n")
+    with client:
+        client.post("/login", data={"password": "open sesame"})
+        snap = client.get("/api/state").json()
+        assert snap["portal_url"] == "https://brave-horse.trycloudflare.com"
+        r = client.get("/portal.svg")
+        if snap["portal_qr"]:
+            assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg") and "<path" in r.text
+        else:
+            assert r.status_code == 404
+    a2, client2 = make(settings)  # no password: no portal, no QR
+    with client2:
+        snap = client2.get("/api/state").json()
+        assert snap["portal_url"] is None and client2.get("/portal.svg").status_code == 404
+
+
+def test_voice_watchdog_keeps_the_dashboard_usable_when_the_mic_hangs(settings, monkeypatch):
+    """A microphone that never opens (a pending permission prompt) must not hold the dashboard offline."""
+    import threading
+
+    from daxton import cli
+
+    a = Assistant(settings, KeywordBrain(), ConsoleSpeaker())
+    q = a.bus.subscribe()
+    released = threading.Event()
+
+    def stuck_run_voice():
+        released.wait(5)  # stands in for Pa_OpenStream waiting on macOS to grant the microphone
+
+    monkeypatch.setattr(a, "run_voice", stuck_run_voice)
+    monkeypatch.setattr(cli, "MIC_WAIT_SECONDS", 0.3)
+    done = threading.Thread(target=cli._run_voice_with_watchdog, args=(a,), daemon=True)
+    done.start()
+    time.sleep(0.8)
+    assert a.state == "idle"
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait())
+    assert any(e["type"] == "error" and "microphone" in e["text"] for e in events)
+    a.stop_event.set()
+    released.set()
+    done.join(3)
+    assert not done.is_alive()

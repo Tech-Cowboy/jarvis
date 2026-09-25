@@ -235,6 +235,14 @@
                  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; padding: 10px 16px; cursor: pointer; }
   #audioprompt.show { display: block; animation: fade .3s ease; }
   .btn.live { border-color: var(--red); color: #fff; background: rgba(255,84,112,.18); box-shadow: 0 0 14px rgba(255,84,112,.45); }
+  #sys-portal a { color: var(--cyan-bright); text-decoration: none; }
+  #sys-portal button { margin-left: 6px; padding: 1px 6px; font-size: 9px; }
+  #qr { position: fixed; inset: 0; z-index: 70; display: none; align-items: center; justify-content: center; background: rgba(4,8,13,.82); cursor: pointer; }
+  #qr.show { display: flex; }
+  #qr .box { text-align: center; padding: 20px; border: 1px solid var(--line-strong); background: rgba(8,22,34,.9); }
+  #qr img { width: min(70vw, 360px); height: auto; display: block; margin: 0 auto 12px; }
+  #qr .u { font-family: var(--mono); font-size: 12px; color: var(--cyan-bright); word-break: break-all; }
+  #qr .h { font-family: var(--mono); font-size: 10px; letter-spacing: .2em; color: var(--dim); text-transform: uppercase; margin-top: 8px; }
   #console select { max-width: 120px; }
   @media (max-width: 900px) { #console { flex-wrap: wrap; } #console input { flex-basis: 100%; } }
 </style>
@@ -263,6 +271,7 @@
     <button class="iconbtn" id="logoutbtn" title="Sign out" style="display:none">&#x23FB;</button>
   </header>
   <button id="audioprompt" type="button">tap to enable audio playback</button>
+  <div id="qr"><div class="box"><img id="qrimg" alt="portal QR code"><div class="u" id="qrurl"></div><div class="h">scan with your phone · tap to close</div></div></div>
 
   <div class="col" id="left">
     <section class="panel">
@@ -274,6 +283,7 @@
         <div class="k">Wake</div><div class="v" id="sys-wake">...</div>
         <div class="k">Mic</div><div class="v" id="sys-mic">...</div>
         <div class="k">Skills</div><div class="v" id="sys-skills">...</div>
+        <div class="k">Portal</div><div class="v" id="sys-portal">local only</div>
       </div>
       <div class="tiers" id="tiers"></div>
     </section>
@@ -441,6 +451,7 @@
     $("mutebtn").classList.toggle("on", S.muted); $("mutebtn").textContent = S.muted ? "Unmute" : "Mute";
     S.localAudio = s.local_audio !== false; $("spkbtn").classList.toggle("on", S.localAudio);
     $("logoutbtn").style.display = s.auth ? "" : "none";
+    renderPortal(s);
     // microphone source: away from the Mac (or without a Mac mic) the page's own microphone; at the Mac, the Mac's
     const canBrowserMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     $("micsrc").querySelector('[value="mac"]').disabled = !s.voice_mode;
@@ -456,6 +467,15 @@
     setState(s.state);
   }
 
+  function renderPortal(s) {
+    const box = $("sys-portal"); const esc = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    if (!s.auth) { box.textContent = "local only (no DASHBOARD_PASSWORD)"; return; }
+    if (!s.portal_url) { box.textContent = "login on; no tunnel running"; return; }
+    const short = s.portal_url.replace(/^https?:\/\//, "");
+    box.innerHTML = `<a href="${esc(s.portal_url)}" target="_blank" rel="noopener" title="${esc(s.portal_url)}">${esc(short)}</a>` + (s.portal_qr ? `<button class="btn small" id="qrbtn">QR</button>` : "");
+    const b = $("qrbtn"); if (b) b.onclick = () => { $("qrimg").src = "/portal.svg?t=" + Date.now(); $("qrurl").textContent = s.portal_url; $("qr").classList.add("show"); };
+  }
+  $("qr").onclick = () => $("qr").classList.remove("show");
   function renderTiers() {
     const box = $("tiers"); box.innerHTML = "";
     const tiers = (S.snapshot && S.snapshot.tiers) || {};

@@ -3,6 +3,8 @@
     daxton tunnel setup daxton.example.com   install cloudflared, log in, create the tunnel, route the
                                              hostname, write ~/.cloudflared/config.yml, install the service
     daxton tunnel run                        run the tunnel in the foreground (for a first test)
+    daxton tunnel quick [--service]          no domain needed: a Cloudflare "quick tunnel" with a random
+                                             https://<words>.trycloudflare.com address (changes on restart)
     daxton tunnel status                     what is configured, what is running, what is still missing
     daxton service install | uninstall | status
                                              a launchd agent that keeps `daxton ui` running at login
@@ -34,6 +36,8 @@ CLOUDFLARED_DIR = Path.home() / ".cloudflared"
 CANDIDATE_BINARIES = ("/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared")
 HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 SERVICE_LABEL = "ai.daxton.dashboard"
+QUICK_LABEL = "ai.daxton.tunnel"
+QUICK_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
 class TunnelError(RuntimeError):
@@ -101,7 +105,8 @@ def launchd_plist(label: str, program_args: list[str], working_dir: str | Path, 
         "ThrottleInterval": 10,
         "StandardOutPath": str(log_path),
         "StandardErrorPath": str(log_path),
-        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", **(env or {})},
+        "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin", "PYTHONUNBUFFERED": "1",
+                                 **(env or {})},
     }
     return plistlib.dumps(plist)
 
@@ -299,6 +304,8 @@ def status(settings) -> int:
         ("hostname", settings.public_hostname or "PUBLIC_HOSTNAME not set"),
         ("password", "set" if settings.dashboard_password else "DASHBOARD_PASSWORD not set: remote access is refused"),
         ("tunnel service", "installed" if cloudflared_service_installed() else "not installed"),
+        ("quick tunnel", ("service installed" if quick_service_installed() else "not installed")
+         + (f", address {quick_url(settings)}" if quick_url(settings) else "")),
         ("tunnel process", "running" if cloudflared_running() else "not running"),
         ("dashboard service", service_status_text()),
     ]
@@ -307,10 +314,122 @@ def status(settings) -> int:
         m = re.search(r"hostname:\s*(\S+)", text)
         if m:
             lines.insert(4, ("published", f"https://{m.group(1)}"))
+    url = portal_url(settings)
+    if url:
+        lines.insert(0, ("portal", url))
     width = max(len(k) for k, _ in lines)
     for k, v in lines:
         print(f"  {k:<{width}}  {v}")
     return 0
+
+
+# ------------------------------------------------------------------ quick tunnels (no domain)
+def quick_url_from_log(text: str) -> str | None:
+    """The newest https://<words>.trycloudflare.com address in cloudflared's output."""
+    found = QUICK_URL_RE.findall(text or "")
+    return found[-1] if found else None
+
+
+def quick_log_path(settings) -> Path:
+    return Path(settings.data_dir) / "logs" / "tunnel.log"
+
+
+def quick_url_file(settings) -> Path:
+    return Path(settings.data_dir) / "portal-url.txt"
+
+
+def quick_url(settings) -> str | None:
+    """The current quick-tunnel address, from whichever of the service log or the foreground run is newer."""
+    candidates = []
+    for path in (quick_log_path(settings), quick_url_file(settings)):
+        try:
+            if path.is_file():
+                url = quick_url_from_log(path.read_text(encoding="utf-8", errors="replace")[-20000:])
+                if url:
+                    candidates.append((path.stat().st_mtime, url))
+        except OSError:
+            continue
+    return max(candidates)[1] if candidates else None
+
+
+def portal_url(settings) -> str | None:
+    """Where the portal answers right now: the named hostname if configured, else the quick tunnel's address."""
+    if settings.public_hostname:
+        return f"https://{settings.public_hostname}"
+    return quick_url(settings)
+
+
+def quick_plist_path() -> Path:
+    return Path.home() / "Library/LaunchAgents" / f"{QUICK_LABEL}.plist"
+
+
+def quick(settings, port: int | None = None, service: bool = False, wait: float = 45.0) -> int:
+    """A quick tunnel: https://<random>.trycloudflare.com -> the dashboard. No account, no domain, no DNS.
+
+    The address is random and changes every time cloudflared restarts, and there is no Cloudflare Access in
+    front of it, so the dashboard password is the only lock. Fine to start with; `daxton tunnel setup` with a
+    domain on Cloudflare DNS is the permanent version.
+    """
+    port = port or settings.dashboard_port
+    if not settings.dashboard_password:
+        raise TunnelError("set DASHBOARD_PASSWORD in .env first; nothing is published without a login")
+    cloudflared = find_cloudflared() or install_cloudflared()
+    args = [cloudflared, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"]
+    if service:
+        if platform.system() != "Darwin":
+            raise TunnelError("--service uses macOS launchd; on Linux run the tunnel under systemd")
+        log_path = quick_log_path(settings)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        plist = quick_plist_path()
+        plist.parent.mkdir(parents=True, exist_ok=True)
+        plist.write_bytes(launchd_plist(QUICK_LABEL, args, Path.home(), log_path))
+        _launchctl_load(plist)
+        print(f"Installed {QUICK_LABEL}: the quick tunnel runs at login and restarts if it drops. Log: {log_path}")
+        print("Waiting for the address ...")
+        import time
+
+        started = time.time()
+        while time.time() - started < wait:
+            url = quick_url_from_log(log_path.read_text(encoding="utf-8", errors="replace")[-20000:]) if log_path.is_file() else None
+            if url:
+                print(f"\nPortal: {url}\n(the address changes when the tunnel restarts; `daxton tunnel status` shows the current one, "
+                      "and the dashboard's Systems panel shows it with a QR code)")
+                return 0
+            time.sleep(1.0)
+        print("No address yet; `daxton tunnel status` will show it once the tunnel connects.")
+        return 0
+    print(f"Quick tunnel to http://127.0.0.1:{port} (Ctrl-C to stop). Keep `daxton ui` running.")
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    url_file = quick_url_file(settings)
+    try:
+        for line in proc.stdout:  # type: ignore[union-attr]
+            url = quick_url_from_log(line)
+            if url:
+                url_file.parent.mkdir(parents=True, exist_ok=True)
+                url_file.write_text(url + "\n", encoding="utf-8")
+                print(f"\nPortal: {url}\n", flush=True)
+            elif "ERR" in line or "error" in line.lower():
+                print(line.rstrip(), flush=True)
+        return proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        return 130
+    finally:
+        try:
+            url_file.unlink()
+        except OSError:
+            pass
+
+
+def quick_service_installed() -> bool:
+    return quick_plist_path().is_file()
+
+
+def quick_service_uninstall() -> None:
+    plist = quick_plist_path()
+    if plist.is_file():
+        _launchctl_unload(plist)
+        plist.unlink()
 
 
 # ------------------------------------------------------------------ launchd service for the dashboard
@@ -361,8 +480,11 @@ def service_install(settings, host: str | None = None, port: int | None = None) 
 
 def service_uninstall(settings) -> int:
     plist = service_plist_path()
+    if quick_service_installed():
+        quick_service_uninstall()
+        print(f"Removed {QUICK_LABEL} (the quick tunnel).")
     if not plist.is_file():
-        print("Not installed.")
+        print("Dashboard service not installed.")
         return 0
     _launchctl_unload(plist)
     plist.unlink()

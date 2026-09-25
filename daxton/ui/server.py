@@ -249,7 +249,17 @@ def create_app(assistant, auth: DashboardAuth | None = None):
         snap = assistant.snapshot()
         snap["auth"] = auth.enabled
         snap["remote"] = not auth.is_local(conn)
+        snap["portal_url"] = _portal_url()
+        snap["portal_qr"] = bool(snap["portal_url"]) and _qr_available()
         return snap
+
+    def _portal_url() -> str | None:
+        try:
+            from ..tunnel import portal_url
+
+            return portal_url(settings) if auth.enabled else None
+        except Exception:
+            return None
 
     # ------------------------------------------------------------ access
     @app.middleware("http")
@@ -319,6 +329,17 @@ def create_app(assistant, auth: DashboardAuth | None = None):
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:
         return Response(FAVICON, media_type="image/svg+xml")
+
+    @app.get("/portal.svg", include_in_schema=False)
+    async def portal_qr() -> Response:
+        """A QR code of the portal's address, for pointing a phone at the dashboard."""
+        url = _portal_url()
+        if not url:
+            return Response("no portal address yet", status_code=404, media_type="text/plain")
+        svg = await asyncio.to_thread(_qr_svg, url)
+        if svg is None:
+            return Response("pip install qrcode", status_code=404, media_type="text/plain")
+        return Response(svg, media_type="image/svg+xml")
 
     @app.get("/api/state")
     async def state(request: Request) -> JSONResponse:
@@ -492,6 +513,26 @@ class _VoiceSession:
         if self.relay.enabled:
             self.relay.enabled = False
             self.assistant.audio_listeners = max(0, self.assistant.audio_listeners - 1)
+
+
+def _qr_available() -> bool:
+    try:
+        import qrcode  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _qr_svg(text: str) -> str | None:
+    try:
+        import qrcode
+        import qrcode.image.svg
+    except ImportError:
+        return None
+    img = qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=12, border=2)
+    svg = img.to_string(encoding="unicode")
+    # the module draws black on transparent; the dashboard is dark, so give it a light tile
+    return svg.replace("<svg ", '<svg style="background:#e8f6fb" ', 1)
 
 
 def _client_ip(request) -> str:

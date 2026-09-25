@@ -83,3 +83,27 @@ def test_doctor_reports_portal_state(tmp_path, monkeypatch):
     monkeypatch.setattr(tunnel, "find_cloudflared", lambda: None)
     areas = {c.area: c for c in run_checks(s)}
     assert areas["portal"].status == OK and areas["tunnel"].status == WARN and "daxton tunnel setup" in areas["tunnel"].hint
+
+
+def test_quick_tunnel_url_parsing_and_lookup(tmp_path):
+    log = ("2026-09-25T23:40:01Z INF Thank you for trying Cloudflare Tunnel.\n"
+           "2026-09-25T23:40:02Z INF +--------------------------------------------------------------------------------------------+\n"
+           "2026-09-25T23:40:02Z INF |  Your quick Tunnel has been created! Visit it at (it may take some time to be reachable):  |\n"
+           "2026-09-25T23:40:02Z INF |  https://tin-horse-beach-ride.trycloudflare.com                                            |\n"
+           "2026-09-25T23:40:02Z INF +--------------------------------------------------------------------------------------------+\n")
+    assert tunnel.quick_url_from_log(log) == "https://tin-horse-beach-ride.trycloudflare.com"
+    assert tunnel.quick_url_from_log(log + "later restart ... https://new-words-here.trycloudflare.com |\n") \
+        == "https://new-words-here.trycloudflare.com"
+    assert tunnel.quick_url_from_log("") is None
+    s = Settings(data_dir=tmp_path)
+    assert tunnel.quick_url(s) is None and tunnel.portal_url(s) is None
+    tunnel.quick_log_path(s).parent.mkdir(parents=True)
+    tunnel.quick_log_path(s).write_text(log)
+    assert tunnel.portal_url(s) == "https://tin-horse-beach-ride.trycloudflare.com"
+    s.public_hostname = "daxton.example.com"
+    assert tunnel.portal_url(s) == "https://daxton.example.com"  # a named hostname wins over the quick address
+
+
+def test_quick_refuses_without_password(tmp_path):
+    with pytest.raises(tunnel.TunnelError, match="DASHBOARD_PASSWORD"):
+        tunnel.quick(Settings(data_dir=tmp_path))

@@ -168,8 +168,7 @@ def cmd_ui(settings: Settings, args: argparse.Namespace) -> int:
     if not args.no_browser:
         print(f"Opened in {open_dashboard(url, app_window=args.app)}.")
     if voice:
-        assistant.run_voice()
-        return 0
+        return _run_voice_with_watchdog(assistant)
     assistant._set_state("idle")
     print("Text mode: type requests in the dashboard. Ctrl-C to stop.")
     try:
@@ -177,6 +176,38 @@ def cmd_ui(settings: Settings, args: argparse.Namespace) -> int:
             _time.sleep(0.25)
     except KeyboardInterrupt:
         print()
+    return 0
+
+
+MIC_WAIT_SECONDS = 20.0
+MIC_WAIT_TEXT = ("the microphone has not opened yet. On a first run as a background service macOS asks whether Python "
+                 "may use the microphone: click Allow on the Mac (System Settings > Privacy & Security > Microphone). "
+                 "Typed requests and browser voice through the portal work meanwhile; the Mac's own ears join in "
+                 "as soon as the microphone opens.")
+
+
+def _run_voice_with_watchdog(assistant) -> int:
+    """Run the voice loop on a worker thread so a stuck microphone (a pending permission prompt) never
+    takes the dashboard and the portal down with it."""
+    import threading
+    import time as _time
+
+    worker = threading.Thread(target=assistant.run_voice, name="daxton-voice", daemon=True)
+    worker.start()
+    deadline = _time.time() + MIC_WAIT_SECONDS
+    while _time.time() < deadline and assistant.state == "offline" and worker.is_alive():
+        _time.sleep(0.2)
+    if assistant.state == "offline" and worker.is_alive():
+        print(MIC_WAIT_TEXT, file=sys.stderr)
+        assistant.bus.publish("error", text=MIC_WAIT_TEXT)
+        assistant._set_state("idle")  # the dashboard is usable; the voice thread sets its own states once it is through
+    try:
+        while worker.is_alive() and not assistant.stop_event.is_set():
+            _time.sleep(0.25)
+    except KeyboardInterrupt:
+        print("\nStopping.")
+        assistant.stop_event.set()
+        assistant.stop_speaking()
     return 0
 
 
@@ -196,6 +227,8 @@ def cmd_tunnel(settings: Settings, args: argparse.Namespace) -> int:
             return tunnel.setup(settings, args.hostname, port=args.port, name=args.name, no_service=args.no_service)
         if args.action == "run":
             return tunnel.run(settings, name=args.name)
+        if args.action == "quick":
+            return tunnel.quick(settings, port=args.port, service=args.service)
         return tunnel.status(settings)
     except tunnel.TunnelError as e:
         print(f"tunnel: {e}", file=sys.stderr)
@@ -313,11 +346,12 @@ def build_parser() -> argparse.ArgumentParser:
     u.add_argument("--app", action="store_true", help="open as a chromeless app window (Chrome, Brave, Edge)")
     u.set_defaults(func=cmd_ui)
     t = sub.add_parser("tunnel", help="portal: publish the dashboard on your own domain (Cloudflare Tunnel)")
-    t.add_argument("action", choices=["setup", "run", "status"])
+    t.add_argument("action", choices=["setup", "run", "quick", "status"])
     t.add_argument("hostname", nargs="?", default="", help="e.g. daxton.example.com (setup; default PUBLIC_HOSTNAME)")
     t.add_argument("--port", type=int, default=None, help="dashboard port the tunnel forwards to (default DASHBOARD_PORT)")
     t.add_argument("--name", default=None, help="tunnel name (default TUNNEL_NAME, 'daxton')")
-    t.add_argument("--no-service", action="store_true", help="do not install cloudflared as a login service")
+    t.add_argument("--no-service", action="store_true", help="setup: do not install cloudflared as a login service")
+    t.add_argument("--service", action="store_true", help="quick: install the quick tunnel as a login service")
     t.set_defaults(func=cmd_tunnel)
     v = sub.add_parser("service", help="keep `daxton ui` running at login (macOS launchd agent)")
     v.add_argument("action", choices=["install", "uninstall", "status"])
