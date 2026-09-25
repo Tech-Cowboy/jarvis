@@ -1,0 +1,29 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# models and caches (downloaded on first run)
+*.onnx
+*.tflite
+*.pcm
+*.wav
+*.mp3
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
+*.swp

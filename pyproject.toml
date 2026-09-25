@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-voice-assistant"
+version = "0.1.0"
+description = "Classic Python JARVIS: wake word, local speech-to-text, LLM tool-calling brain, ElevenLabs voice, modular skills (apps, web search, system)."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Zachary Leyden" }]
+keywords = ["jarvis", "voice-assistant", "elevenlabs", "whisper", "wake-word", "llm", "anthropic", "openai", "ollama"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+
+# Core: enough for `jarvis chat` in keyword mode with console output.
+dependencies = [
+  "python-dotenv>=1.0",
+  "numpy>=1.26",
+  "httpx>=0.25",
+  "ddgs>=9.0",
+]
+
+[project.optional-dependencies]
+audio = ["sounddevice>=0.4.6"]
+elevenlabs = ["elevenlabs>=2.0"]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.50"]
+ollama = ["ollama>=0.4"]
+whisper = ["faster-whisper>=1.1"]
+google = ["SpeechRecognition>=3.10"]
+wake = ["openwakeword>=0.6", "onnxruntime>=1.16"]
+all = [
+  "sounddevice>=0.4.6",
+  "elevenlabs>=2.0",
+  "anthropic>=0.40",
+  "openai>=1.50",
+  "ollama>=0.4",
+  "faster-whisper>=1.1",
+  "SpeechRecognition>=3.10",
+  "openwakeword>=0.6",
+  "onnxruntime>=1.16",
+]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Tech-Cowboy/jarvis"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

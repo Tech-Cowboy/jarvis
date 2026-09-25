@@ -1,0 +1,224 @@
+"""Command line entry point: `jarvis` (voice), `jarvis chat`, `jarvis doctor`, ..."""
+
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+
+from . import __version__
+from .config import Settings, load_settings
+
+
+def _setup_logging(verbose: bool, settings: Settings) -> None:
+    level = logging.DEBUG if verbose else getattr(logging, settings.log_level, logging.WARNING)
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    for noisy in ("httpx", "httpcore", "urllib3", "openai", "anthropic", "faster_whisper", "ctranslate2",
+                  "primp", "ddgs", "huggingface_hub", "filelock"):
+        logging.getLogger(noisy).setLevel(logging.ERROR if not verbose else logging.INFO)
+
+
+def _apply_overrides(settings: Settings, args: argparse.Namespace) -> None:
+    for attr, key in (("llm", "llm_provider"), ("tts", "tts_provider"), ("stt", "stt_provider"), ("wake", "wake_mode")):
+        val = getattr(args, attr, None)
+        if val:
+            setattr(settings, key, val)
+
+
+def _build_assistant(settings: Settings, voice: bool):
+    from .assistant import Assistant
+    from .brain.factory import make_llm
+    from .tts import make_speaker
+
+    llm = make_llm(settings)
+    speaker = make_speaker(settings)
+    if not voice:
+        return Assistant(settings, llm, speaker)
+
+    from .audio.mic import Microphone
+    from .stt import make_transcriber
+
+    mic = Microphone(sample_rate=settings.sample_rate, device=settings.mic_device)
+    transcriber = make_transcriber(settings)
+    mode = settings.resolved_wake_mode()
+    if mode == "wakeword":
+        from .wake.oww import OpenWakeWordDetector
+        wake = OpenWakeWordDetector(mic, settings.wake_word, settings.wake_threshold)
+    elif mode == "push_to_talk":
+        from .wake.simple import PushToTalk
+        wake = PushToTalk()
+    elif mode == "name":
+        from .wake.simple import AlwaysListening
+        wake = AlwaysListening()
+    else:
+        raise SystemExit(f"Unknown WAKE_MODE '{mode}'. Use auto, wakeword, name or push_to_talk.")
+    return Assistant(settings, llm, speaker, transcriber=transcriber, mic=mic, wake=wake)
+
+
+# ------------------------------------------------------------------ commands
+def cmd_run(settings: Settings, args: argparse.Namespace) -> int:
+    assistant = _build_assistant(settings, voice=True)
+    assistant.run_voice()
+    return 0
+
+
+def cmd_chat(settings: Settings, args: argparse.Namespace) -> int:
+    if not args.speak and not args.tts:
+        settings.tts_provider = "console"
+    assistant = _build_assistant(settings, voice=False)
+    assistant.run_chat(speak=args.speak)
+    return 0
+
+
+def cmd_ask(settings: Settings, args: argparse.Namespace) -> int:
+    if not args.speak and not args.tts:
+        settings.tts_provider = "console"
+    assistant = _build_assistant(settings, voice=False)
+    reply = assistant.handle(" ".join(args.text))
+    print(reply)
+    if args.speak:
+        assistant.speak(reply)
+    return 0
+
+
+def cmd_say(settings: Settings, args: argparse.Namespace) -> int:
+    from .tts import make_speaker
+
+    speaker = make_speaker(settings)
+    print(f"Speaking with {speaker.describe()} ...")
+    speaker.say(" ".join(args.text))
+    return 0
+
+
+def cmd_listen(settings: Settings, args: argparse.Namespace) -> int:
+    from .audio.mic import Microphone
+    from .stt import make_transcriber
+
+    transcriber = make_transcriber(settings)
+    with Microphone(sample_rate=settings.sample_rate, device=settings.mic_device) as mic:
+        mic.calibrate()
+        print(f"Ambient noise rms={mic.ambient_rms:.4f}. Speak now ...")
+        audio = mic.record_utterance(
+            min_speech_rms=settings.min_speech_rms, silence_seconds=settings.silence_seconds,
+            max_seconds=settings.max_utterance_seconds, start_timeout=settings.listen_timeout_seconds,
+        )
+    if audio is None:
+        print("Heard nothing (timeout). Try MIN_SPEECH_RMS lower, or check the mic with `jarvis devices`.")
+        return 1
+    print(f"Recorded {len(audio) / settings.sample_rate:.1f}s, transcribing with {transcriber.describe()} ...")
+    print("Heard:", transcriber.transcribe(audio, settings.sample_rate) or "(nothing intelligible)")
+    return 0
+
+
+def cmd_doctor(settings: Settings, args: argparse.Namespace) -> int:
+    from .doctor import FAIL, format_checks, run_checks
+
+    checks = run_checks(settings, online=args.online)
+    print(format_checks(checks))
+    return 1 if any(c.status == FAIL for c in checks) else 0
+
+
+def cmd_devices(settings: Settings, args: argparse.Namespace) -> int:
+    from .audio.mic import list_input_devices
+
+    for d in list_input_devices():
+        print(f"[{d['index']:2d}] {d['name']}  ({d['channels']} ch, {d['default_samplerate']:.0f} Hz)")
+    print("\nSet MIC_DEVICE in .env to an index or a name substring.")
+    return 0
+
+
+def cmd_voices(settings: Settings, args: argparse.Namespace) -> int:
+    from .tts.elevenlabs_tts import ElevenLabsSpeaker
+
+    sp = ElevenLabsSpeaker(settings)
+    for voice_id, name, category in sp.list_voices():
+        marker = " <- current" if voice_id == sp.voice_id else ""
+        print(f"{voice_id}  {name:24s} {category}{marker}")
+    print("\nSet ELEVENLABS_VOICE_ID (or ELEVENLABS_VOICE_NAME) in .env.")
+    return 0
+
+
+def cmd_skills(settings: Settings, args: argparse.Namespace) -> int:
+    from .skills import load_default_skills
+
+    reg = load_default_skills()
+    for spec in sorted(reg.tool_specs(), key=lambda t: t.name):
+        params = ", ".join(spec.parameters.get("properties", {}))
+        print(f"{spec.name}({params})\n    {spec.description.splitlines()[0]}")
+    return 0
+
+
+def cmd_download(settings: Settings, args: argparse.Namespace) -> int:
+    if settings.resolved_stt_provider() == "whisper":
+        print(f"Downloading faster-whisper {settings.whisper_model} ...")
+        from .stt.whisper_local import WhisperTranscriber
+        WhisperTranscriber(settings.whisper_model, settings.whisper_device, settings.whisper_compute_type)
+        print("  done.")
+    try:
+        from .wake.oww import download_models, model_files_present
+        if model_files_present(settings.wake_word):
+            print(f"openWakeWord '{settings.wake_word}' already present.")
+        else:
+            print(f"Downloading openWakeWord '{settings.wake_word}' ...")
+            download_models(settings.wake_word)
+            print("  done.")
+    except ImportError:
+        print("openWakeWord not installed; skipping wake word model (pip install openwakeword onnxruntime).")
+    return 0
+
+
+# --------------------------------------------------------------------- main
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="jarvis", description="Classic Python JARVIS voice assistant.")
+    p.add_argument("--version", action="version", version=f"jarvis {__version__}")
+    p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    p.add_argument("--llm", choices=["auto", "anthropic", "openai", "ollama", "keyword"], help="override LLM_PROVIDER")
+    p.add_argument("--tts", choices=["auto", "elevenlabs", "say", "console"], help="override TTS_PROVIDER")
+    p.add_argument("--stt", choices=["auto", "whisper", "google"], help="override STT_PROVIDER")
+    p.add_argument("--wake", choices=["auto", "wakeword", "name", "push_to_talk"], help="override WAKE_MODE")
+    sub = p.add_subparsers(dest="command")
+
+    sub.add_parser("run", help="voice mode (default)").set_defaults(func=cmd_run)
+    c = sub.add_parser("chat", help="text mode: type requests, read replies")
+    c.add_argument("--speak", action="store_true", help="also speak replies aloud")
+    c.set_defaults(func=cmd_chat)
+    a = sub.add_parser("ask", help="one-shot text request")
+    a.add_argument("text", nargs="+")
+    a.add_argument("--speak", action="store_true")
+    a.set_defaults(func=cmd_ask)
+    s = sub.add_parser("say", help="speak text with the configured voice")
+    s.add_argument("text", nargs="+")
+    s.set_defaults(func=cmd_say)
+    sub.add_parser("listen", help="record one utterance and print the transcript").set_defaults(func=cmd_listen)
+    d = sub.add_parser("doctor", help="check the setup")
+    d.add_argument("--online", action="store_true", help="also call the LLM and ElevenLabs APIs")
+    d.set_defaults(func=cmd_doctor)
+    sub.add_parser("devices", help="list microphones").set_defaults(func=cmd_devices)
+    sub.add_parser("voices", help="list ElevenLabs voices").set_defaults(func=cmd_voices)
+    sub.add_parser("skills", help="list the tools the brain can call").set_defaults(func=cmd_skills)
+    sub.add_parser("download-models", help="pre-download Whisper and wake word models").set_defaults(func=cmd_download)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    settings = load_settings()
+    _setup_logging(args.verbose, settings)
+    _apply_overrides(settings, args)
+    func = getattr(args, "func", cmd_run)
+    try:
+        return func(settings, args)
+    except KeyboardInterrupt:
+        print()
+        return 130
+    except Exception as e:
+        if args.verbose:
+            raise
+        print(f"error: {e}", file=sys.stderr)
+        print("run with -v for the traceback, or `jarvis doctor` to check the setup", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
