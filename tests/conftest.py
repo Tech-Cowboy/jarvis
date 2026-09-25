@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from jarvis.config import Settings
+from daxton.config import Settings
 
 
 @pytest.fixture

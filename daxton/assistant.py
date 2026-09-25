@@ -1,6 +1,6 @@
 """The assistant loop: wake -> listen -> transcribe -> think (tools) -> speak.
 
-Every transition is published on an EventBus so the dashboard (jarvis/ui) can
+Every transition is published on an EventBus so the dashboard (daxton/ui) can
 mirror it live: states, transcript lines, tool calls, routes, audio levels.
 """
 
@@ -29,9 +29,9 @@ CLI_COMMANDS = {"run", "chat", "ask", "say", "listen", "rate", "doctor", "device
 
 
 def _looks_like_cli_command(text: str) -> bool:
-    """'jarvis listen', 'jarvis doctor --online', 'jarvis' typed at the chat prompt instead of the shell."""
+    """'daxton listen', 'daxton doctor --online', 'daxton' typed at the chat prompt instead of the shell."""
     words = text.strip().lower().split()
-    if not words or words[0] != "jarvis":
+    if not words or words[0] not in ("daxton", "jarvis"):
         return False
     return len(words) == 1 or words[1] in CLI_COMMANDS or words[1].startswith("-")
 
@@ -67,7 +67,6 @@ class Assistant:
             history_turns=settings.history_turns, max_tool_rounds=settings.max_tool_rounds,
             on_tool=self._show_tool,
         )
-        self._name_re = re.compile(rf"\b{re.escape(settings.assistant_name)}\b", re.I)
         self._turn_lock = threading.RLock()
         self.show_tools = True
         # audio hooks for the dashboard visualiser
@@ -134,6 +133,9 @@ class Assistant:
             "type": "snapshot",
             "version": __version__,
             "assistant_name": s.assistant_name,
+            "product_name": s.product_name,
+            "wake_mode": self.wake.name if self.wake else None,
+            "wake_phrase": s.wake_phrase,
             "user_name": s.user_name,
             "state": self.state,
             "muted": self.muted,
@@ -194,12 +196,12 @@ class Assistant:
               f"Ears: {self.transcriber.describe()}. Wake: {self.wake.describe()}.")
         if self.mic.ambient_rms == 0.0:
             print("Warning: the microphone is delivering digital silence. If nothing is heard, set MIC_DEVICE "
-                  "in .env to a real input from `jarvis devices` (for example 'MacBook Pro Microphone').")
+                  "in .env to a real input from `daxton devices` (for example 'MacBook Pro Microphone').")
             self.bus.publish("error", text="microphone delivers digital silence; check MIC_DEVICE")
         if mode == "name":
             print(f"Say '{name}' anywhere in a sentence. Ctrl-C to quit.")
         elif mode == "wakeword":
-            print("Say 'hey Jarvis' to start. Ctrl-C to quit.")
+            print(f"Say '{s.wake_phrase}' to start. Ctrl-C to quit.")
         self.bus.publish("online", mode=mode, ambient_rms=self.mic.ambient_rms)
         self.speak("Online.")
         self._set_state("idle")
@@ -247,8 +249,9 @@ class Assistant:
             self._set_state("idle")
             return
         if mode == "name":
-            if not self._name_re.search(text):
+            if not self.hears_name(text):
                 log.debug("ignored (no name): %s", text)
+                self.bus.publish("heard", text=text, note="no name, ignored")
                 self._set_state("idle")
                 return
             text = self._strip_name(text)
@@ -302,8 +305,12 @@ class Assistant:
             except Exception as e:
                 log.debug("chime failed: %s", e)
 
+    def hears_name(self, text: str) -> bool:
+        from .wake.names import contains_name
+
+        return contains_name(text, self.settings.assistant_name, self.settings.aliases)
+
     def _strip_name(self, text: str) -> str:
-        text = self._name_re.sub("", text)
-        text = re.sub(r"^\W+|\W+$", "", text.strip())
-        text = re.sub(r"^(hey|ok|okay|hi|hello)\b[\s,]*", "", text, flags=re.I)
-        return text.strip()
+        from .wake.names import strip_name
+
+        return strip_name(text, self.settings.assistant_name, self.settings.aliases)

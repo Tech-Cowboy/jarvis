@@ -1,6 +1,6 @@
 """The dashboard server: serves the HUD page, streams assistant events over a WebSocket, takes commands.
 
-    GET  /            the dashboard (jarvis/ui/static/index.html)
+    GET  /            the dashboard (daxton/ui/static/index.html)
     GET  /api/state   snapshot: state, configuration, skills, recent history
     WS   /ws          events out (state, user, assistant, tool, route, audio, telemetry, ...)
                       commands in ({"cmd": "say", "text": ...}, {"cmd": "talk"}, ...)
@@ -161,7 +161,7 @@ FAVICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><g fill=
 
 def create_app(assistant):
     if FastAPI is None:  # pragma: no cover
-        raise RuntimeError("The dashboard needs fastapi and uvicorn: pip install 'jarvis-voice-assistant[ui]'")
+        raise RuntimeError("The dashboard needs fastapi and uvicorn: pip install 'daxton-ai[ui]'")
 
     telemetry = Telemetry()
     clients: set[WebSocket] = set()
@@ -187,7 +187,7 @@ def create_app(assistant):
         finally:
             task.cancel()
 
-    app = FastAPI(title="JARVIS dashboard", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app = FastAPI(title="Daxton AI dashboard", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.assistant = assistant
     app.state.clients = clients
 
@@ -268,7 +268,7 @@ def run_server(assistant, host: str = "127.0.0.1", port: int = 8765) -> threadin
     app = create_app(assistant)
     config = uvicorn.Config(app, host=host, port=port, log_level="warning", access_log=False)
     server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, name="jarvis-ui", daemon=True)
+    thread = threading.Thread(target=server.run, name="daxton-ui", daemon=True)
     thread.start()
     deadline = time.time() + 5
     while time.time() < deadline and not getattr(server, "started", False):

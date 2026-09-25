@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import json
 
-from jarvis.brain.anthropic_llm import to_anthropic_messages, to_anthropic_tools
-from jarvis.brain.base import Message, ToolCall, ToolSpec
-from jarvis.brain.ollama_llm import to_ollama_messages, to_ollama_tools
-from jarvis.brain.openai_llm import to_openai_messages, to_openai_tools
+from daxton.brain.anthropic_llm import to_anthropic_messages, to_anthropic_tools
+from daxton.brain.base import Message, ToolCall, ToolSpec
+from daxton.brain.ollama_llm import to_ollama_messages, to_ollama_tools
+from daxton.brain.openai_llm import to_openai_messages, to_openai_tools
 
 TOOLS = [ToolSpec("open_app", "Open an app.", {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]})]
 
@@ -65,7 +65,7 @@ def test_empty_tool_result_is_never_blank():
 def test_anthropic_workspace_header_and_hint():
     pytest = __import__("pytest")
     pytest.importorskip("anthropic")
-    from jarvis.brain.anthropic_llm import AnthropicLLM, _explain
+    from daxton.brain.anthropic_llm import AnthropicLLM, _explain
 
     plain = AnthropicLLM("sk-test", "claude-x")
     assert "anthropic-workspace-id" not in plain._client.default_headers

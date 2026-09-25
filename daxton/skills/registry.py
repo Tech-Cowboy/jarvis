@@ -1,7 +1,7 @@
 """Skill registry: plain Python functions become tools the brain can call.
 
     from typing import Annotated
-    from jarvis.skills.registry import skill
+    from daxton.skills.registry import skill
 
     @skill()
     def open_app(name: Annotated[str, "Application name, e.g. 'Safari'"]) -> str:

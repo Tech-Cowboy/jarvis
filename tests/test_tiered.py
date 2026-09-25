@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from jarvis.brain.base import LLM, LLMError, LLMResponse, Message, ToolCall, ToolSpec
-from jarvis.brain.keyword_brain import KeywordBrain
-from jarvis.brain.rating import ComplexityRater
-from jarvis.brain.router import Router
-from jarvis.brain.tiered import TieredLLM
-from jarvis.skills import load_default_skills
-from jarvis.skills.context import SkillContext
+from daxton.brain.base import LLM, LLMError, LLMResponse, Message, ToolCall, ToolSpec
+from daxton.brain.keyword_brain import KeywordBrain
+from daxton.brain.rating import ComplexityRater
+from daxton.brain.router import Router
+from daxton.brain.tiered import TieredLLM
+from daxton.skills import load_default_skills
+from daxton.skills.context import SkillContext
 
 TOOLS = [ToolSpec(n, "", {"type": "object", "properties": {}}) for n in load_default_skills().names()]
 

@@ -1,4 +1,4 @@
-"""`jarvis doctor`: check every part of the pipeline and say what to fix."""
+"""`daxton doctor`: check every part of the pipeline and say what to fix."""
 
 from __future__ import annotations
 
@@ -126,7 +126,7 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
         from .stt.whisper_local import model_is_cached
         cached = model_is_cached(settings.whisper_model)
         add(Check(OK if cached else WARN, "ears", f"faster-whisper {settings.whisper_model} ({'cached' if cached else 'will download on first run'})",
-                  "" if cached else "run: jarvis download-models"))
+                  "" if cached else "run: daxton download-models"))
     elif stt == "google":
         ok = _importable("speech_recognition")
         add(Check(OK if ok else FAIL, "ears", "Google Web Speech via SpeechRecognition (online)",
@@ -136,12 +136,16 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
     wake = settings.resolved_wake_mode()
     if wake == "wakeword":
         from .wake.oww import model_files_present
-        present = model_files_present(settings.wake_word)
-        add(Check(OK if present else WARN, "wake", f"openWakeWord '{settings.wake_word}' ({'model present' if present else 'model will download on first run'})",
-                  "" if present else "run: jarvis download-models"))
+        word = settings.resolved_wake_word()
+        present = model_files_present(word)
+        add(Check(OK if present else WARN, "wake", f"openWakeWord '{word}' ({'model present' if present else 'model will download on first run'}); say '{settings.wake_phrase}'",
+                  "" if present else "run: daxton download-models"))
     elif wake == "name":
-        add(Check(WARN, "wake", "openWakeWord not installed: always-listening name mode",
-                  "pip install openwakeword onnxruntime   for 'hey Jarvis'"))
+        name = settings.assistant_name
+        oww = _importable("openwakeword")
+        add(Check(OK, "wake", f"always listening: say '{name}' anywhere in a sentence (no wake-word model is trained for this name)",
+                  f"optional: train a 'hey {name.lower()}' model with openWakeWord and set WAKE_WORD=/path/to/hey_{name.lower()}.onnx"
+                  + ("" if oww else "; pip install openwakeword onnxruntime")))
     else:
         add(Check(OK, "wake", f"{wake} mode"))
 
@@ -185,6 +189,6 @@ def format_checks(checks: list[Check]) -> str:
     fails = sum(1 for c in checks if c.status == FAIL)
     warns = sum(1 for c in checks if c.status == WARN)
     lines.append("")
-    lines.append("All good. Run `jarvis` to start." if not fails and not warns
+    lines.append("All good. Run `daxton` to start." if not fails and not warns
                  else f"{fails} problem(s), {warns} warning(s).")
     return "\n".join(lines)

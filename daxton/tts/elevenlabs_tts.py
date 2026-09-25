@@ -1,6 +1,6 @@
 """ElevenLabs voice: streamed raw PCM played as it arrives (no ffmpeg needed).
 
-Short phrases are cached on disk (~/.jarvis/tts-cache) so the wake acknowledgement
+Short phrases are cached on disk (~/.daxton/tts-cache) so the wake acknowledgement
 and repeated confirmations do not spend credits twice.
 """
 

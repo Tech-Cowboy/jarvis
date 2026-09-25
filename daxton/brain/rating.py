@@ -8,7 +8,7 @@ the score to a tier:
     fast   free-form actions, factual questions, short summaries -> a small hosted model
     smart  reasoning, comparison, writing, multi-step plans, long or subtle requests
 
-`jarvis rate "..."` prints the score and the reasons so the thresholds can be tuned.
+`daxton rate "..."` prints the score and the reasons so the thresholds can be tuned.
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ class Rating:
 
 class ComplexityRater:
     def __init__(self, fast_threshold: float = 0.30, smart_threshold: float = 0.60,
-                 free_is_llm: bool = False, assistant_name: str = "Jarvis"):
+                 free_is_llm: bool = False, assistant_name: str = "Daxton"):
         self.fast_threshold = fast_threshold
         self.smart_threshold = smart_threshold
         self.free_is_llm = free_is_llm  # a local model at the free tier can take free-form requests

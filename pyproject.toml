@@ -3,14 +3,14 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "jarvis-voice-assistant"
+name = "daxton-ai"
 version = "0.1.0"
-description = "Classic Python JARVIS: wake word, local speech-to-text, LLM tool-calling brain, ElevenLabs voice, modular skills (apps, web search, system)."
+description = "Daxton AI: a classic-style Python voice assistant. Wake word, local speech-to-text, LLM tool-calling brain, ElevenLabs voice, modular skills (apps, web search, system)."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 authors = [{ name = "Zachary Leyden" }]
-keywords = ["jarvis", "voice-assistant", "elevenlabs", "whisper", "wake-word", "llm", "anthropic", "openai", "ollama"]
+keywords = ["daxton", "voice-assistant", "jarvis", "elevenlabs", "whisper", "wake-word", "llm", "anthropic", "openai", "ollama"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
@@ -18,7 +18,7 @@ classifiers = [
   "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 
-# Core: enough for `jarvis chat` in keyword mode with console output.
+# Core: enough for `daxton chat` in keyword mode with console output.
 dependencies = [
   "python-dotenv>=1.0",
   "numpy>=1.26",
@@ -53,16 +53,16 @@ all = [
 dev = ["pytest>=7.4", "fastapi>=0.110", "psutil>=5.9"]
 
 [project.scripts]
-jarvis = "jarvis.cli:main"
+daxton = "daxton.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Tech-Cowboy/jarvis"
+Homepage = "https://github.com/Tech-Cowboy/daxton-ai"
 
 [tool.setuptools.packages.find]
-include = ["jarvis*"]
+include = ["daxton*"]
 
 [tool.setuptools.package-data]
-jarvis = ["ui/static/*"]
+daxton = ["ui/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

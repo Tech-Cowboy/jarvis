@@ -52,7 +52,7 @@ def take_screenshot() -> str:
     """Take a screenshot of the whole screen and save it to the Desktop."""
     desktop = Path.home() / "Desktop"
     desktop.mkdir(exist_ok=True)
-    path = desktop / f"jarvis-{datetime.now():%Y%m%d-%H%M%S}.png"
+    path = desktop / f"daxton-{datetime.now():%Y%m%d-%H%M%S}.png"
     system = platform.system()
     if system == "Darwin":
         r = subprocess.run(["screencapture", "-x", str(path)], capture_output=True, text=True)

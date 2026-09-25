@@ -6,12 +6,12 @@ import threading
 import numpy as np
 import pytest
 
-from jarvis.assistant import Assistant
-from jarvis.audio.analysis import N_BANDS, analyze, pcm16_bytes_to_samples
-from jarvis.brain.keyword_brain import KeywordBrain
-from jarvis.events import EventBus
-from jarvis.tts.console import ConsoleSpeaker
-from jarvis.wake.simple import AlwaysListening, PushToTalk
+from daxton.assistant import Assistant
+from daxton.audio.analysis import N_BANDS, analyze, pcm16_bytes_to_samples
+from daxton.brain.keyword_brain import KeywordBrain
+from daxton.events import EventBus
+from daxton.tts.console import ConsoleSpeaker
+from daxton.wake.simple import AlwaysListening, PushToTalk
 
 
 # ------------------------------------------------------------------ bus
@@ -64,7 +64,7 @@ def test_pcm16_bytes_to_samples_drops_odd_byte():
 
 # ------------------------------------------------------- wake triggers
 def test_push_to_talk_honours_talk_event(monkeypatch):
-    import jarvis.wake.simple as simple
+    import daxton.wake.simple as simple
 
     monkeypatch.setattr(simple.sys, "stdin", type("S", (), {"readline": staticmethod(lambda: threading.Event().wait(5) or "")})())
     stop, talk = threading.Event(), threading.Event()
@@ -100,7 +100,7 @@ def test_handle_publishes_transcript_state_and_route(settings):
 def test_snapshot_shape(settings):
     a = make_assistant(settings)
     snap = a.snapshot()
-    assert snap["type"] == "snapshot" and snap["assistant_name"] == "Jarvis" and snap["voice_mode"] is False
+    assert snap["type"] == "snapshot" and snap["assistant_name"] == "Daxton" and snap["voice_mode"] is False
     assert {"brain", "ears", "voice", "wake", "skills", "history", "thresholds", "started_at"} <= set(snap)
     assert any(k["name"] == "open_app" for k in snap["skills"])
 
@@ -117,7 +117,7 @@ fastapi = pytest.importorskip("fastapi")
 def make_client(settings):
     from fastapi.testclient import TestClient
 
-    from jarvis.ui.server import create_app
+    from daxton.ui.server import create_app
 
     a = make_assistant(settings)
     a.show_tools = False
@@ -128,7 +128,7 @@ def test_dashboard_page_and_state(settings):
     a, client = make_client(settings)
     with client:
         r = client.get("/")
-        assert r.status_code == 200 and "<title>JARVIS</title>" in r.text and "corecanvas" in r.text
+        assert r.status_code == 200 and "<title>Daxton AI</title>" in r.text and "corecanvas" in r.text
         assert client.get("/favicon.ico").headers["content-type"].startswith("image/svg")
         s = client.get("/api/state").json()
         assert s["type"] == "snapshot" and s["brain"] == "keyword"
@@ -186,7 +186,7 @@ def test_http_command_endpoint(settings):
 
 
 def test_telemetry_sample_shape():
-    from jarvis.ui.server import Telemetry
+    from daxton.ui.server import Telemetry
 
     t = Telemetry().sample()
     if t.get("available"):

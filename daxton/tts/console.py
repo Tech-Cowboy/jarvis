@@ -1,4 +1,4 @@
-"""No audio: print what would be spoken. Used by `jarvis chat` and the tests."""
+"""No audio: print what would be spoken. Used by `daxton chat` and the tests."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from . import Speaker, clean_for_speech
 class ConsoleSpeaker(Speaker):
     name = "console"
 
-    def __init__(self, assistant_name: str = "Jarvis"):
+    def __init__(self, assistant_name: str = "Daxton"):
         self.assistant_name = assistant_name
         self.spoken: list[str] = []
 

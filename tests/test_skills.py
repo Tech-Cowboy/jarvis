@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from jarvis.skills import apps, files, notes, system, timers, web
-from jarvis.skills.context import SkillContext
+from daxton.skills import apps, files, notes, system, timers, web
+from daxton.skills.context import SkillContext
 
 
 # ----------------------------------------------------------------- apps

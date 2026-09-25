@@ -47,7 +47,7 @@ def resolve_device(spec: str):
     for i, d in enumerate(sd.query_devices()):
         if d.get("max_input_channels", 0) > 0 and spec.lower() in d["name"].lower():
             return i
-    raise ValueError(f"No input device matches '{spec}'. Run `jarvis devices` to list them.")
+    raise ValueError(f"No input device matches '{spec}'. Run `daxton devices` to list them.")
 
 
 class Microphone:

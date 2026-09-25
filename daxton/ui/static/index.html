@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JARVIS</title>
+<title>Daxton AI</title>
 <style>
   :root {
     --bg: #04080d;
@@ -234,7 +234,7 @@
           <path d="M20 2v6M20 32v6M2 20h6M32 20h6" opacity=".7"/>
         </g>
       </svg>
-      <div><div class="name" id="brandname">JARVIS</div><div class="sub">personal assistant interface</div></div>
+      <div><div class="name" id="brandname">DAXTON AI</div><div class="sub">personal assistant interface</div></div>
     </div>
     <div class="pill offline" id="statepill">offline</div>
     <div class="spacer"></div>
@@ -289,7 +289,7 @@
       <button class="btn" id="talkbtn" title="Push to talk (space)">&#9679; Talk</button>
       <button class="btn danger" id="stopbtn" title="Stop speaking (esc)">&#9632;</button>
     </div>
-    <div id="hintline">say "hey jarvis" or press space</div>
+    <div id="hintline">say "daxton" in a sentence, or press space</div>
   </div>
 
   <div class="col" id="right">
@@ -327,7 +327,7 @@
   };
 
   // ------------------------------------------------------------ boot sequence
-  const bootLines = ["JARVIS INTERFACE", "initialising systems", "audio pipeline", "brain tiers", "telemetry", "link"];
+  const bootLines = ["DAXTON AI", "initialising systems", "audio pipeline", "brain tiers", "telemetry", "link"];
   const bl = $("bootlines");
   bootLines.forEach((t, i) => {
     const d = document.createElement("div");
@@ -387,8 +387,8 @@
 
   function applySnapshot(s) {
     S.snapshot = s; S.state = s.state; S.muted = s.muted; S.pinned = s.pinned; S.stats = s.stats || {};
-    $("brandname").textContent = (s.assistant_name || "JARVIS").toUpperCase();
-    document.title = s.assistant_name || "JARVIS";
+    $("brandname").textContent = (s.product_name || s.assistant_name || "DAXTON AI").toUpperCase();
+    document.title = s.product_name || s.assistant_name || "Daxton AI";
     $("sys-brain").textContent = Object.keys(s.tiers || {}).length ? "tiered routing" : s.brain; $("sys-brain").title = s.brain;
     $("sys-ears").textContent = s.ears; $("sys-voice").textContent = s.voice;
     $("sys-wake").textContent = s.wake; $("sys-mic").textContent = s.mic;
@@ -396,7 +396,7 @@
     $("tierpin").value = s.pinned || "auto";
     $("mutebtn").classList.toggle("on", S.muted); $("mutebtn").textContent = S.muted ? "Unmute" : "Mute";
     $("talkbtn").disabled = !s.voice_mode;
-    $("hintline").textContent = s.voice_mode ? `say "hey ${(s.assistant_name || "jarvis").toLowerCase()}" or press space to talk` : "text mode: type a request and press enter";
+    $("hintline").textContent = s.voice_mode ? (s.wake_mode === "name" ? `say "${(s.assistant_name || "daxton").toLowerCase()}" in a sentence, or press space to talk` : `say "${s.wake_phrase || "hey " + (s.assistant_name || "daxton").toLowerCase()}" or press space to talk`) : "text mode: type a request and press enter";
     renderTiers(); renderStats(); renderRoute(null);
     $("log").innerHTML = "";
     (s.history || []).forEach((ev) => { if (ev.type === "route") { attachRoute(ev); renderRoute(ev); } else appendLog(ev, true); });
@@ -439,7 +439,9 @@
     S.state = s;
     const pill = $("statepill"); pill.className = "pill " + s; pill.textContent = s;
     const sw = $("stateword"); sw.className = s;
-    $("stateword-w").textContent = STATE_WORD[s] || s.toUpperCase(); $("stateword-h").textContent = STATE_HINT[s] || "";
+    let hint = STATE_HINT[s] || "";
+    if (s === "idle" && S.snapshot) hint = !S.snapshot.voice_mode ? "awaiting a request" : S.snapshot.wake_mode === "name" ? `listening for "${(S.snapshot.assistant_name || "").toLowerCase()}"` : S.snapshot.wake_mode === "push_to_talk" ? "press space to talk" : "awaiting wake word";
+    $("stateword-w").textContent = STATE_WORD[s] || s.toUpperCase(); $("stateword-h").textContent = hint;
   }
 
   // ------------------------------------------------------------ log
@@ -449,7 +451,7 @@
     const ts = `<span class="ts">${hhmm(ev.ts || Date.now() / 1000)}</span>`;
     const esc = (t) => String(t == null ? "" : t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
     if (ev.type === "user") d.innerHTML = `<div class="who">you ${ts}</div><div class="txt">${esc(ev.text)}</div>`;
-    else if (ev.type === "assistant") { d.innerHTML = `<div class="who">${esc((S.snapshot && S.snapshot.assistant_name) || "jarvis")} <span class="badges"></span>${ts}</div><div class="txt">${esc(ev.text)}</div>`; lastAssistantEntry = d; }
+    else if (ev.type === "assistant") { d.innerHTML = `<div class="who">${esc((S.snapshot && S.snapshot.assistant_name) || "daxton")} <span class="badges"></span>${ts}</div><div class="txt">${esc(ev.text)}</div>`; lastAssistantEntry = d; }
     else if (ev.type === "tool") { const args = Object.entries(ev.arguments || {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ");
       d.innerHTML = `&#8627; ${esc(ev.name)}(${esc(args)}) <span class="res">&#8594; ${esc((ev.result || "").split("\n")[0])}</span>`; }
     else if (ev.type === "wake") d.innerHTML = `&#9679; wake (${esc(ev.mode)})`;

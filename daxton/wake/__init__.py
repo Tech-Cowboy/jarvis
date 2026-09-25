@@ -1,4 +1,4 @@
-"""Wake-word detection: openWakeWord ("hey jarvis"), push-to-talk, or name-in-transcript."""
+"""Wake-word detection: openWakeWord (a pre-trained or custom model), push-to-talk, or name-in-transcript."""
 
 from __future__ import annotations
 

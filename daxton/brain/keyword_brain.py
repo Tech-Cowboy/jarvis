@@ -45,7 +45,7 @@ def _rules() -> list[Rule]:
              lambda m: ("end_session", {})),
         Rule(r(r"^(?:set|start)\s+(?:a\s+)?(?:timer|alarm)\s+(?:for\s+)?(?P<d>.+?)(?:\s+(?:for|called|named)\s+(?:the\s+|my\s+)?(?P<label>[^.!?]+?))?[.!?]*$", re.I),
              lambda m: ("set_timer", {"duration": m["d"], **({"label": m["label"]} if m["label"] else {})})),
-        Rule(r(r"^(?:(?:jarvis|please|can you|could you|would you|will you|kindly)[,\s]+)*(?:go to|open|launch|start|run)\s+(?:the\s+)?(?:app\s+|application\s+|website\s+|site\s+)?(?P<name>.+?)(?:\s+(?:app|application|for me|please))?[.!?]*$", re.I),
+        Rule(r(r"^(?:(?:please|can you|could you|would you|will you|kindly)[,\s]+)*(?:go to|open|launch|start|run)\s+(?:the\s+)?(?:app\s+|application\s+|website\s+|site\s+)?(?P<name>.+?)(?:\s+(?:app|application|for me|please))?[.!?]*$", re.I),
              lambda m: (("open_website", {"name": m["name"]}) if m["name"].strip().lower() in WEBSITES
                         or "." in m["name"] or m["name"].lower().endswith((" website", " site", ".com"))
                         else ("open_app", {"name": m["name"]}))),
@@ -97,10 +97,11 @@ SMALL_TALK: list[tuple[re.Pattern, str]] = [
 _RULES = _rules()
 
 
-def strip_name(text: str, assistant_name: str = "Jarvis") -> str:
-    text = text.strip()
-    text = re.sub(rf"^(?:hey|ok|okay|hi)?[,\s]*{re.escape(assistant_name)}[,.!\s]*", "", text, flags=re.I)
-    return text.strip()
+def strip_name(text: str, assistant_name: str = "Daxton", aliases=()) -> str:
+    """Drop the assistant's name (and a leading 'hey') wherever it appears, tolerant of STT spellings."""
+    from ..wake.names import strip_name as _strip
+
+    return _strip(text or "", assistant_name, aliases)
 
 
 def find_rule(text: str, available: set[str] | None = None) -> tuple[str, dict] | None:
@@ -126,7 +127,7 @@ def find_small_talk(text: str) -> str | None:
 class KeywordBrain(LLM):
     name = "keyword"
 
-    def __init__(self, assistant_name: str = "Jarvis"):
+    def __init__(self, assistant_name: str = "Daxton"):
         self.assistant_name = assistant_name
         self._counter = 0
 

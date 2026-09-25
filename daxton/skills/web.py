@@ -147,7 +147,7 @@ def news_search(
 
 
 # Wikimedia asks API clients to identify themselves: https://meta.wikimedia.org/wiki/User-Agent_policy
-WIKI_HEADERS = {"User-Agent": "jarvis-voice-assistant/0.1 (https://github.com/Tech-Cowboy/jarvis; personal use)",
+WIKI_HEADERS = {"User-Agent": "daxton-ai/0.1 (https://github.com/Tech-Cowboy/daxton-ai; personal use)",
                 "Accept": "application/json"}
 
 

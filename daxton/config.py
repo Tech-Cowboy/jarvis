@@ -1,7 +1,7 @@
-"""Settings for JARVIS, loaded from environment variables and .env files.
+"""Settings for Daxton AI, loaded from environment variables and .env files.
 
 Load order (later wins):
-  1. ~/.config/jarvis/.env   (global, optional)
+  1. ~/.config/daxton/.env   (global, optional)
   2. ./.env                  (project-local, optional)
   3. real environment variables
 
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-GLOBAL_ENV = Path.home() / ".config" / "jarvis" / ".env"
+GLOBAL_ENV = Path.home() / ".config" / "daxton" / ".env"
 LOCAL_ENV = Path.cwd() / ".env"
 
 
@@ -55,7 +55,9 @@ def load_env_files() -> list[Path]:
 @dataclass
 class Settings:
     # Identity
-    assistant_name: str = "Jarvis"
+    assistant_name: str = "Daxton"
+    product_name: str = "Daxton AI"
+    assistant_aliases: str = ""  # comma-separated other spellings the speech engine produces, e.g. "Dax, Dexton"
     user_name: str = ""
     honorific: str = "sir"
 
@@ -107,7 +109,7 @@ class Settings:
 
     # Wake
     wake_mode: str = "auto"  # auto | wakeword | name | push_to_talk
-    wake_word: str = "hey_jarvis"
+    wake_word: str = "auto"  # auto | a pre-trained openWakeWord name (hey_jarvis) | path to a custom .onnx model
     wake_threshold: float = 0.5
     wake_ack: str = "phrase"  # phrase | chime | none
     wake_ack_text: str = "Yes, sir?"
@@ -122,7 +124,7 @@ class Settings:
 
     # Skills
     search_max_results: int = 5
-    data_dir: Path = field(default_factory=lambda: Path.home() / ".jarvis")
+    data_dir: Path = field(default_factory=lambda: Path.home() / ".daxton")
 
     # Misc
     log_level: str = "WARNING"
@@ -208,14 +210,41 @@ class Settings:
         except Exception:
             return "google"
 
+    @property
+    def aliases(self) -> list[str]:
+        return [a.strip() for a in self.assistant_aliases.split(",") if a.strip()]
+
+    def resolved_wake_word(self) -> str:
+        """The openWakeWord model to use: a pre-trained name, a custom model path, or '' when none fits the name."""
+        if self.wake_word != "auto":
+            return self.wake_word
+        candidate = "hey_" + self.assistant_name.strip().lower().replace(" ", "_")
+        try:
+            import openwakeword
+            return candidate if candidate in openwakeword.MODELS else ""
+        except Exception:
+            return ""
+
     def resolved_wake_mode(self) -> str:
+        """wakeword when a model exists for the name (or was configured), else always-listening name mode."""
         if self.wake_mode != "auto":
             return self.wake_mode
+        if not self.resolved_wake_word():
+            return "name"
         try:
             import openwakeword  # noqa: F401
             return "wakeword"
         except Exception:
             return "name"
+
+    @property
+    def wake_phrase(self) -> str:
+        """What to say: 'hey jarvis' for a wake model, or just the name in a sentence."""
+        if self.resolved_wake_mode() == "wakeword":
+            word = Path(self.resolved_wake_word()).stem if self.resolved_wake_word() else ""
+            word = word.replace("_v0.1", "").replace("_", " ")
+            return word or f"hey {self.assistant_name.lower()}"
+        return self.assistant_name
 
     def masked(self, value: str) -> str:
         if not value:
@@ -241,7 +270,9 @@ def load_settings() -> Settings:
     env_files = load_env_files()
     e = os.environ.get
     s = Settings(
-        assistant_name=e("ASSISTANT_NAME", "Jarvis"),
+        assistant_name=e("ASSISTANT_NAME", "Daxton"),
+        product_name=e("PRODUCT_NAME", "Daxton AI"),
+        assistant_aliases=e("ASSISTANT_ALIASES", ""),
         user_name=e("USER_NAME", ""),
         honorific=e("HONORIFIC", "sir"),
         llm_provider=e("LLM_PROVIDER", "auto").strip().lower(),
@@ -283,7 +314,7 @@ def load_settings() -> Settings:
         whisper_compute_type=e("WHISPER_COMPUTE_TYPE", "int8"),
         whisper_language=e("WHISPER_LANGUAGE", "en"),
         wake_mode=e("WAKE_MODE", "auto").strip().lower(),
-        wake_word=e("WAKE_WORD", "hey_jarvis"),
+        wake_word=e("WAKE_WORD", "auto").strip(),
         wake_threshold=_float(e("WAKE_THRESHOLD"), 0.5),
         wake_ack=e("WAKE_ACK", "phrase").strip().lower(),
         wake_ack_text=e("WAKE_ACK_TEXT", "Yes, sir?"),
@@ -294,7 +325,7 @@ def load_settings() -> Settings:
         listen_timeout_seconds=_float(e("LISTEN_TIMEOUT_SECONDS"), 8.0),
         min_speech_rms=_float(e("MIN_SPEECH_RMS"), 0.010),
         search_max_results=_int(e("SEARCH_MAX_RESULTS"), 5),
-        data_dir=Path(e("JARVIS_DATA_DIR", str(Path.home() / ".jarvis"))).expanduser(),
+        data_dir=Path(e("DAXTON_DATA_DIR", str(Path.home() / ".daxton"))).expanduser(),
         log_level=e("LOG_LEVEL", "WARNING").upper(),
         env_files=env_files,
     )

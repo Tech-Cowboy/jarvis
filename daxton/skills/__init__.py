@@ -1,4 +1,4 @@
-"""Skills: the things JARVIS can do. Importing a module registers its @skill functions."""
+"""Skills: the things Daxton can do. Importing a module registers its @skill functions."""
 
 from __future__ import annotations
 
@@ -8,13 +8,13 @@ from .context import SkillContext
 from .registry import SkillRegistry, default_registry, skill
 
 DEFAULT_SKILL_MODULES = [
-    "jarvis.skills.apps",
-    "jarvis.skills.web",
-    "jarvis.skills.system",
-    "jarvis.skills.files",
-    "jarvis.skills.notes",
-    "jarvis.skills.timers",
-    "jarvis.skills.control",
+    "daxton.skills.apps",
+    "daxton.skills.web",
+    "daxton.skills.system",
+    "daxton.skills.files",
+    "daxton.skills.notes",
+    "daxton.skills.timers",
+    "daxton.skills.control",
 ]
 
 

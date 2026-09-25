@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from jarvis.skills.context import SkillContext
-from jarvis.skills.registry import SkillRegistry
+from daxton.skills.context import SkillContext
+from daxton.skills.registry import SkillRegistry
 
 
 def make_registry():
@@ -45,7 +45,7 @@ def test_run_with_args_and_ctx(settings):
     reg = make_registry()
     ctx = SkillContext(settings=settings)
     assert reg.run("greet", {"name": "Zach", "excited": True, "times": 2}, ctx) == "HELLO Zach!!"
-    assert reg.run("needs_ctx", {}, ctx) == "Jarvis"
+    assert reg.run("needs_ctx", {}, ctx) == "Daxton"
 
 
 def test_run_errors_are_strings(settings):
@@ -59,7 +59,7 @@ def test_run_errors_are_strings(settings):
 
 
 def test_default_skills_load():
-    from jarvis.skills import load_default_skills
+    from daxton.skills import load_default_skills
 
     reg = load_default_skills()
     names = set(reg.names())

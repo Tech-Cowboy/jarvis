@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from jarvis.brain.base import Message, ToolSpec
-from jarvis.brain.keyword_brain import KeywordBrain
-from jarvis.skills import load_default_skills
+from daxton.brain.base import Message, ToolSpec
+from daxton.brain.keyword_brain import KeywordBrain
+from daxton.skills import load_default_skills
 
 TOOLS = [ToolSpec(n, "", {"type": "object", "properties": {}}) for n in load_default_skills().names()]
 
@@ -21,7 +21,7 @@ def route(text: str):
     "text, expected",
     [
         ("open safari", ("open_app", {"name": "safari"})),
-        ("Jarvis, open Spotify please", ("open_app", {"name": "Spotify"})),
+        ("Daxton, open Spotify please", ("open_app", {"name": "Spotify"})),
         ("launch the terminal app", ("open_app", {"name": "terminal"})),
         ("open youtube", ("open_website", {"name": "youtube"})),
         ("open the youtube website", ("open_website", {"name": "youtube website"})),
@@ -65,7 +65,7 @@ def test_unknown_and_help():
     assert kind == "text" and "didn't catch" in text
     kind, text = route("help")
     assert kind == "text" and "keyword mode" in text
-    kind, text = route("hello jarvis")
+    kind, text = route("hello daxton")
     assert kind == "text" and text.startswith("Hello")
 
 

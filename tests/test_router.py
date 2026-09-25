@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from jarvis.brain.base import LLM, LLMError, LLMResponse, Message, ToolCall
-from jarvis.brain.router import Router
-from jarvis.skills.context import SkillContext
-from jarvis.skills.registry import SkillRegistry
+from daxton.brain.base import LLM, LLMError, LLMResponse, Message, ToolCall
+from daxton.brain.router import Router
+from daxton.skills.context import SkillContext
+from daxton.skills.registry import SkillRegistry
 
 
 class ScriptedLLM(LLM):

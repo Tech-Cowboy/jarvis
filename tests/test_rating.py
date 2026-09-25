@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from jarvis.brain.rating import ComplexityRater
-from jarvis.skills import load_default_skills
+from daxton.brain.rating import ComplexityRater
+from daxton.skills import load_default_skills
 
 TOOLS = set(load_default_skills().names())
 KEYWORD_FREE = ComplexityRater(free_is_llm=False)
@@ -13,7 +13,7 @@ LOCAL_LLM_FREE = ComplexityRater(free_is_llm=True)
 @pytest.mark.parametrize("text, tier", [
     # simple commands and lookups stay free
     ("open safari", "free"),
-    ("hey jarvis, quit spotify", "free"),
+    ("hey daxton, quit spotify", "free"),
     ("what time is it", "free"),
     ("set a timer for 10 minutes", "free"),
     ("remember that the gate code is 4412", "free"),

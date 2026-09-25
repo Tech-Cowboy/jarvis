@@ -17,19 +17,30 @@ from . import WakeDetector, talk_requested
 log = logging.getLogger(__name__)
 
 
+def is_custom_model(wake_word: str) -> bool:
+    return wake_word.endswith((".onnx", ".tflite")) or "/" in wake_word
+
+
 def model_files_present(wake_word: str = "hey_jarvis") -> bool:
     try:
         import openwakeword
     except ImportError:
         return False
     res = Path(openwakeword.__file__).parent / "resources" / "models"
-    return any(res.glob(f"{wake_word}*.onnx")) and (res / "embedding_model.onnx").is_file()
+    base_ok = (res / "embedding_model.onnx").is_file() and (res / "melspectrogram.onnx").is_file()
+    if is_custom_model(wake_word):
+        return Path(wake_word).expanduser().is_file() and base_ok
+    return any(res.glob(f"{wake_word}*.onnx")) and base_ok
 
 
 def download_models(wake_word: str = "hey_jarvis") -> None:
+    """Fetch the shared feature models plus a pre-trained wake model (custom models are already on disk)."""
     from openwakeword import utils
 
-    utils.download_models(model_names=[wake_word])
+    if is_custom_model(wake_word):
+        utils.download_models(model_names=["hey_jarvis"])  # brings the embedding and melspectrogram models along
+    else:
+        utils.download_models(model_names=[wake_word])
 
 
 class OpenWakeWordDetector(WakeDetector):
@@ -45,7 +56,9 @@ class OpenWakeWordDetector(WakeDetector):
         self.wake_word = wake_word
         self.threshold = threshold
         self.cooldown = cooldown
-        self.model = Model(wakeword_models=[wake_word], inference_framework="onnx")
+        model_ref = str(Path(wake_word).expanduser()) if is_custom_model(wake_word) else wake_word
+        framework = "tflite" if model_ref.endswith(".tflite") else "onnx"
+        self.model = Model(wakeword_models=[model_ref], inference_framework=framework)
         self._key = next(iter(self.model.models.keys()))
         self._last_trigger = 0.0
 
@@ -67,4 +80,5 @@ class OpenWakeWordDetector(WakeDetector):
         return False
 
     def describe(self) -> str:
-        return f"wake word '{self.wake_word.replace('_', ' ')}' (threshold {self.threshold})"
+        phrase = Path(self.wake_word).stem.replace("_v0.1", "").replace("_", " ")
+        return f"wake word '{phrase}' (threshold {self.threshold})"

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from jarvis import config
-from jarvis.audio.mic import rms
-from jarvis.audio.chime import chime_samples
-from jarvis.stt import clean_transcript
-from jarvis.tts import clean_for_speech
-from jarvis.tts.console import ConsoleSpeaker
+from daxton import config
+from daxton.audio.mic import rms
+from daxton.audio.chime import chime_samples
+from daxton.stt import clean_transcript
+from daxton.tts import clean_for_speech
+from daxton.tts.console import ConsoleSpeaker
 
 
 def test_settings_from_env(monkeypatch, tmp_path):
@@ -16,7 +16,7 @@ def test_settings_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-1234567890")
     monkeypatch.setenv("WAKE_THRESHOLD", "0.7")
     monkeypatch.setenv("TTS_CACHE", "no")
-    monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "d"))
+    monkeypatch.setenv("DAXTON_DATA_DIR", str(tmp_path / "d"))
     monkeypatch.setattr(config, "GLOBAL_ENV", tmp_path / "nope1")
     monkeypatch.setattr(config, "LOCAL_ENV", tmp_path / "nope2")
     s = config.load_settings()
@@ -34,7 +34,7 @@ def test_dotenv_file_is_loaded(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "GLOBAL_ENV", tmp_path / "nope")
     monkeypatch.setattr(config, "LOCAL_ENV", env)
     monkeypatch.delenv("USER_NAME", raising=False)
-    monkeypatch.setenv("JARVIS_DATA_DIR", str(tmp_path / "d"))
+    monkeypatch.setenv("DAXTON_DATA_DIR", str(tmp_path / "d"))
     s = config.load_settings()
     assert s.user_name == "Zach" and s.env_files == [env]
     assert s.resolved_tts_provider() == "elevenlabs"
@@ -62,10 +62,10 @@ def test_clean_transcript_drops_hallucinations():
 
 
 def test_console_speaker_records(capsys):
-    sp = ConsoleSpeaker("Jarvis")
+    sp = ConsoleSpeaker("Daxton")
     sp.say("Hello **there**")
     assert sp.spoken == ["Hello there"]
-    assert "Jarvis: Hello there" in capsys.readouterr().out
+    assert "Daxton: Hello there" in capsys.readouterr().out
 
 
 def test_rms_and_chime():

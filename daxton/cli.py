@@ -1,4 +1,4 @@
-"""Command line entry point: `jarvis` (voice), `jarvis chat`, `jarvis doctor`, ..."""
+"""Command line entry point: `daxton` (voice), `daxton chat`, `daxton doctor`, ..."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _build_assistant(settings: Settings, voice: bool):
     mode = settings.resolved_wake_mode()
     if mode == "wakeword":
         from .wake.oww import OpenWakeWordDetector
-        wake = OpenWakeWordDetector(mic, settings.wake_word, settings.wake_threshold)
+        wake = OpenWakeWordDetector(mic, settings.resolved_wake_word(), settings.wake_threshold)
     elif mode == "push_to_talk":
         from .wake.simple import PushToTalk
         wake = PushToTalk()
@@ -100,13 +100,13 @@ def cmd_listen(settings: Settings, args: argparse.Namespace) -> int:
         mic.calibrate()
         print(f"Ambient noise rms={mic.ambient_rms:.4f}. Speak now ...")
         if mic.ambient_rms == 0.0:
-            print("(digital silence: if nothing is heard, set MIC_DEVICE to a real input from `jarvis devices`)")
+            print("(digital silence: if nothing is heard, set MIC_DEVICE to a real input from `daxton devices`)")
         audio = mic.record_utterance(
             min_speech_rms=settings.min_speech_rms, silence_seconds=settings.silence_seconds,
             max_seconds=settings.max_utterance_seconds, start_timeout=settings.listen_timeout_seconds,
         )
     if audio is None:
-        print("Heard nothing (timeout). Try MIN_SPEECH_RMS lower, or check the mic with `jarvis devices`.")
+        print("Heard nothing (timeout). Try MIN_SPEECH_RMS lower, or check the mic with `daxton devices`.")
         return 1
     print(f"Recorded {len(audio) / settings.sample_rate:.1f}s, transcribing with {transcriber.describe()} ...")
     print("Heard:", transcriber.transcribe(audio, settings.sample_rate) or "(nothing intelligible)")
@@ -213,13 +213,18 @@ def cmd_download(settings: Settings, args: argparse.Namespace) -> int:
         from .stt.whisper_local import WhisperTranscriber
         WhisperTranscriber(settings.whisper_model, settings.whisper_device, settings.whisper_compute_type)
         print("  done.")
+    word = settings.resolved_wake_word()
+    if not word:
+        print(f"No wake-word model is trained for '{settings.assistant_name}': voice mode listens for the name in each "
+              f"sentence instead. To use a wake phrase, train one with openWakeWord and set WAKE_WORD=/path/to/model.onnx.")
+        return 0
     try:
         from .wake.oww import download_models, model_files_present
-        if model_files_present(settings.wake_word):
-            print(f"openWakeWord '{settings.wake_word}' already present.")
+        if model_files_present(word):
+            print(f"openWakeWord '{word}' already present.")
         else:
-            print(f"Downloading openWakeWord '{settings.wake_word}' ...")
-            download_models(settings.wake_word)
+            print(f"Downloading openWakeWord '{word}' ...")
+            download_models(word)
             print("  done.")
     except ImportError:
         print("openWakeWord not installed; skipping wake word model (pip install openwakeword onnxruntime).")
@@ -228,8 +233,8 @@ def cmd_download(settings: Settings, args: argparse.Namespace) -> int:
 
 # --------------------------------------------------------------------- main
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="jarvis", description="Classic Python JARVIS voice assistant.")
-    p.add_argument("--version", action="version", version=f"jarvis {__version__}")
+    p = argparse.ArgumentParser(prog="daxton", description="Daxton AI: a classic Python voice assistant, modernized.")
+    p.add_argument("--version", action="version", version=f"daxton {__version__}")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     p.add_argument("--llm", choices=["auto", "anthropic", "openai", "ollama", "keyword"],
                    help="pin one provider (turns tiered routing off)")
@@ -288,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.verbose:
             raise
         print(f"error: {e}", file=sys.stderr)
-        print("run with -v for the traceback, or `jarvis doctor` to check the setup", file=sys.stderr)
+        print("run with -v for the traceback, or `daxton doctor` to check the setup", file=sys.stderr)
         return 1
 
 

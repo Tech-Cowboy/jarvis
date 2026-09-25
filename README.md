@@ -1,17 +1,17 @@
-# JARVIS
+# Daxton AI
 
 A classic Python voice assistant, rebuilt with today's open-source parts.
 
 ```
- "hey Jarvis"        speech                 text                  tools                 voice
+ "Daxton, ..."       speech                 text                  tools                 voice
  ────────────►  ──────────────►  ───────────────────►  ─────────────────►  ──────────────────►
- openWakeWord    faster-whisper    LLM with tool calling   skills (open apps,   ElevenLabs
- (free model)    (local, offline)  Anthropic / OpenAI /    web search, sites,   (or macOS `say`)
+ name spotting   faster-whisper    LLM with tool calling   skills (open apps,   ElevenLabs
+ or openWakeWord (local, offline)  Anthropic / OpenAI /    web search, sites,   (or macOS `say`)
                                    Ollama / keyword mode   files, timers, ...)
 ```
 
-Say **"hey Jarvis, open Spotify"**, **"hey Jarvis, what's the weather in Daly City"**, **"hey Jarvis, set a timer for
-ten minutes"** and it does it, out loud, in your ElevenLabs voice, with a live holographic dashboard (`jarvis ui`) showing
+Say **"Daxton, open Spotify"**, **"Daxton, what's the weather in Daly City"**, **"Daxton, set a timer for ten
+minutes"** and it does it, out loud, in your ElevenLabs voice, with a live holographic dashboard (`daxton ui`) showing
 what it hears, thinks and does. Everything runs on your Mac except the two paid APIs you
 choose to plug in (the LLM and the voice), and both have free fallbacks.
 
@@ -23,7 +23,7 @@ here (listen, recognize, route, act, speak) with each stage swapped for a modern
 
 | Stage | Classic template | This repo | License |
 |---|---|---|---|
-| Wake word | none (always listening) | [openWakeWord](https://github.com/dscripka/openWakeWord) pre-trained `hey_jarvis` | Apache-2.0 code, CC BY-NC-SA 4.0 model |
+| Wake word | none (always listening) | name spotting in the transcript (fuzzy, so "Dexton" counts), or an [openWakeWord](https://github.com/dscripka/openWakeWord) model when one exists for the name (`hey_jarvis` ships pre-trained; a custom "hey Daxton" model can be trained) | Apache-2.0 code, CC BY-NC-SA 4.0 pre-trained models |
 | Speech to text | Google Web Speech via `SpeechRecognition` | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) locally (Google SR still available) | MIT |
 | Brain | `if "open" in command:` keyword matching | Complexity-rated tiers: keyword rules or a local Ollama model for the simple stuff, Claude Haiku / Sonnet (or OpenAI) only when the request needs them | MIT SDKs |
 | Skills | inline functions | `@skill` registry, one module per domain | this repo, MIT |
@@ -33,7 +33,7 @@ here (listen, recognize, route, act, speak) with each stage swapped for a modern
 ## Requirements
 
 - macOS on Apple Silicon (tested), Python 3.11 to 3.13 (3.12 recommended; the setup script uses `uv` to fetch it).
-  Linux mostly works; Windows needs small changes in `jarvis/skills/apps.py` and `system.py`.
+  Linux mostly works; Windows needs small changes in `daxton/skills/apps.py` and `system.py`.
 - A microphone. The first run asks for Microphone permission for your terminal app.
 - Optional keys, each with a free fallback:
   - `ELEVENLABS_API_KEY` for the voice (fallback: macOS `say`).
@@ -42,13 +42,13 @@ here (listen, recognize, route, act, speak) with each stage swapped for a modern
 ## Quick start (macOS)
 
 ```bash
-git clone https://github.com/Tech-Cowboy/jarvis.git
-cd jarvis
+git clone https://github.com/Tech-Cowboy/daxton-ai.git
+cd daxton-ai
 ./scripts/setup_mac.sh        # venv, dependencies, model downloads, doctor
 cp .env.example .env          # then put your keys in .env (the script does this if .env is missing)
 source .venv/bin/activate
-jarvis doctor                 # every stage reports OK / WARN / FAIL with the fix
-jarvis                        # voice mode: say "hey Jarvis"
+daxton doctor                 # every stage reports OK / WARN / FAIL with the fix
+daxton                        # voice mode: say "Daxton, ..." in a sentence
 ```
 
 Manual install, if you prefer:
@@ -56,17 +56,17 @@ Manual install, if you prefer:
 ```bash
 uv venv --python 3.12 .venv && source .venv/bin/activate
 uv pip install -e ".[all,dev]"       # or: pip install -e ".[all,dev]"
-jarvis download-models               # faster-whisper base.en (~150 MB) and the hey_jarvis wake model (~6 MB)
+daxton download-models               # faster-whisper base.en (~150 MB), plus a wake model when one is configured
 ```
 
 ## The dashboard
 
-![JARVIS dashboard](docs/dashboard.png)
+![Daxton AI dashboard](docs/dashboard.png)
 
 ```bash
-jarvis ui            # voice mode plus the live HUD at http://127.0.0.1:8765 (opens your browser)
-jarvis ui --app      # chromeless app window (Chrome, Brave or Edge), F11 or the corner button for full screen
-jarvis ui --no-voice # dashboard only: type requests, no microphone loop
+daxton ui            # voice mode plus the live HUD at http://127.0.0.1:8765 (opens your browser)
+daxton ui --app      # chromeless app window (Chrome, Brave or Edge), F11 or the corner button for full screen
+daxton ui --no-voice # dashboard only: type requests, no microphone loop
 ```
 
 The HUD is a local web page served by the assistant itself, so it mirrors the real thing: the core in the middle
@@ -81,8 +81,8 @@ single self-contained HTML file with no external assets, so it works offline and
 The look is an original holographic command-center design in the classic movie-AI spirit: cyan and amber on dark,
 concentric rings, ticks, scan lines. Fonts are the system's own, so nothing is fetched from the internet.
 
-Under the hood: `jarvis/events.py` is a thread-safe event bus the assistant publishes to (state, transcript, tool,
-route, audio analysis at 12 Hz, telemetry at 1 Hz); `jarvis/ui/server.py` is a FastAPI app with a WebSocket that
+Under the hood: `daxton/events.py` is a thread-safe event bus the assistant publishes to (state, transcript, tool,
+route, audio analysis at 12 Hz, telemetry at 1 Hz); `daxton/ui/server.py` is a FastAPI app with a WebSocket that
 streams the bus to every open dashboard and accepts commands (`say`, `talk`, `stop_speaking`, `pin_tier`, `mute`,
 `new_conversation`, `run_skill`); `GET /api/state` returns a snapshot and `POST /api/command` runs a command, so
 anything else (a Stream Deck button, a shortcut, another app) can drive the assistant too.
@@ -100,14 +100,14 @@ the score picks a tier:
 
 If the chosen tier fails (offline, rate limit, bad key) or cannot handle the request (the keyword rules do not match),
 it escalates to the next tier automatically. Short follow-ups ("and the second one?") stay on the tier the previous
-turn used. The tool-calling loop keeps one tier per turn. Every reply in `jarvis chat` prints its route, and the
+turn used. The tool-calling loop keeps one tier per turn. Every reply in `daxton chat` prints its route, and the
 session ends with a count per tier.
 
 ```bash
-jarvis rate "compare the pros and cons of buying versus leasing a horse trailer"
+daxton rate "compare the pros and cons of buying versus leasing a horse trailer"
 #  score 0.90  ->  smart tier  (anthropic:claude-sonnet-5)
 #  12 words; reasoning: compare, pros and cons, versus; long reasoning question
-jarvis --tier free chat     # pin a tier for this run (free | fast | smart), or --tier off for a single provider
+daxton --tier free chat     # pin a tier for this run (free | fast | smart), or --tier off for a single provider
 ```
 
 Tune it in `.env`: `LLM_TIER_FREE`, `LLM_TIER_FAST`, `LLM_TIER_SMART` take `provider[:model]` (for example
@@ -120,22 +120,36 @@ keyword rules; without it, anything the rules cannot parse goes straight to the 
 
 | Command | What it does |
 |---|---|
-| `jarvis` / `jarvis run` | Voice mode: wake word, listen, think, speak. Ctrl-C to stop. |
-| `jarvis chat` | Text mode: type requests, read replies. `--speak` also says them aloud. |
-| `jarvis ask "open safari"` | One request, one reply, exit. |
-| `jarvis say "Good evening, sir."` | Test the configured voice. |
-| `jarvis listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
-| `jarvis ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
-| `jarvis rate "..."` | Show the complexity score, the reasons, and which tier and model would take the request. |
-| `jarvis doctor [--online]` | Check every stage; `--online` also calls the LLM and ElevenLabs APIs. |
-| `jarvis devices` | List microphones (set `MIC_DEVICE` in `.env`). |
-| `jarvis voices` | List the ElevenLabs voices on your account. |
-| `jarvis skills` | List the tools the brain can call. |
-| `jarvis download-models` | Pre-download the Whisper and wake word models. |
+| `daxton` / `daxton run` | Voice mode: wake word, listen, think, speak. Ctrl-C to stop. |
+| `daxton chat` | Text mode: type requests, read replies. `--speak` also says them aloud. |
+| `daxton ask "open safari"` | One request, one reply, exit. |
+| `daxton say "Good evening, sir."` | Test the configured voice. |
+| `daxton listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
+| `daxton ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
+| `daxton rate "..."` | Show the complexity score, the reasons, and which tier and model would take the request. |
+| `daxton doctor [--online]` | Check every stage; `--online` also calls the LLM and ElevenLabs APIs. |
+| `daxton devices` | List microphones (set `MIC_DEVICE` in `.env`). |
+| `daxton voices` | List the ElevenLabs voices on your account. |
+| `daxton skills` | List the tools the brain can call. |
+| `daxton download-models` | Pre-download the Whisper and wake word models. |
 
 Global flags override `.env` for one run: `--tier`, `--llm`, `--tts`, `--stt`, `--wake`, `-v` (debug logging).
-Examples: `jarvis --wake push_to_talk` (press Enter to talk), `jarvis --tier free chat` (never leave the free tier),
-`jarvis --llm keyword chat` (no API at all), `jarvis --tts say` (skip ElevenLabs), `jarvis --stt google` (no Whisper download).
+Examples: `daxton --wake push_to_talk` (press Enter to talk), `daxton --tier free chat` (never leave the free tier),
+`daxton --llm keyword chat` (no API at all), `daxton --tts say` (skip ElevenLabs), `daxton --stt google` (no Whisper download).
+
+## Waking Daxton
+
+Out of the box, voice mode listens continuously and answers whenever it hears the name in a sentence: "Daxton, open
+Safari", "what time is it, Daxton". The match is fuzzy, so the spellings speech-to-text tends to produce ("Dexton",
+"Daxon", "Daxten") all count, and `ASSISTANT_ALIASES=Dax` adds a nickname. Nothing is sent anywhere until the name is
+heard; the transcription runs locally.
+
+For a true wake phrase ("hey Daxton", answered with "Yes, sir?" before you speak) you need a wake-word model, and the
+free pre-trained ones only cover a few phrases (`hey_jarvis` among them). Train one with openWakeWord's
+[automatic model training notebook](https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb)
+(it synthesises the phrase with text-to-speech, about an hour on a free Colab GPU), drop the `.onnx` file anywhere, and set
+`WAKE_WORD=/path/to/hey_daxton.onnx`; `WAKE_MODE=auto` then switches to wake-word mode by itself. `WAKE_MODE=push_to_talk`
+(Enter in the terminal, `space` on the dashboard) works with no model at all.
 
 ## What you can say
 
@@ -149,7 +163,7 @@ Examples: `jarvis --wake push_to_talk` (press Enter to talk), `jarvis --tier fre
 - **Session**: "new conversation", "goodbye" / "stop listening"
 
 With an LLM brain the phrasing is free-form and it will chain tools ("find the horse-trailer listing you found earlier
-and open it"). In keyword mode the phrases above are matched by pattern, like the original JARVIS scripts.
+and open it"). In keyword mode the phrases above are matched by pattern, like the original JARVIS-style scripts.
 
 ## Configuration (`.env`)
 
@@ -159,7 +173,7 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 |---|---|---|
 | `LLM_ROUTING` | `auto` | `auto` rates each request and picks a tier; `free` / `fast` / `smart` pins one; `off` uses the single `LLM_PROVIDER`. |
 | `LLM_TIER_FREE`, `LLM_TIER_FAST`, `LLM_TIER_SMART` | `auto` | `provider[:model]` per tier. `auto` = Ollama or keyword / Haiku / Sonnet from the keys present. |
-| `ROUTING_FAST_THRESHOLD`, `ROUTING_SMART_THRESHOLD` | `0.30`, `0.60` | Score cut-offs; `jarvis rate` shows where a request lands. |
+| `ROUTING_FAST_THRESHOLD`, `ROUTING_SMART_THRESHOLD` | `0.30`, `0.60` | Score cut-offs; `daxton rate` shows where a request lands. |
 | `ROUTING_ESCALATE` | `true` | Move up a tier when the chosen one fails or cannot handle the request. |
 | `LLM_PROVIDER` | `auto` | Pin one provider (turns tiers off): `anthropic`, `openai`, `ollama` or `keyword`. |
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMART_MODEL` | `claude-haiku-4-5-20251001`, `claude-sonnet-5` | Fast and smart tier models (`claude-opus-5-5` for the strongest). |
@@ -168,35 +182,37 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 | `OLLAMA_MODEL`, `OLLAMA_SMART_MODEL`, `OLLAMA_HOST` | `qwen3:4b`, empty | Local free tier; optional bigger local model for the smart tier when no hosted key is set. |
 | `TTS_PROVIDER` | `auto` | `elevenlabs` when a key is set, else `say` on macOS, else `console`. |
 | `ELEVENLABS_API_KEY` | | Your ElevenLabs key. |
-| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_NAME` | `onwK4e9ZLuTAKqWW03F9` (Daniel) | `jarvis voices` lists yours; a name resolves to an ID at startup. |
+| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_NAME` | `onwK4e9ZLuTAKqWW03F9` (Daniel) | `daxton voices` lists yours; a name resolves to an ID at startup. |
 | `ELEVENLABS_MODEL` | `eleven_flash_v2_5` | Lowest latency. `eleven_multilingual_v2` for the richest voice. |
 | `ELEVENLABS_OUTPUT_FORMAT` | `pcm_24000` | Keep a `pcm_*` format; audio is streamed straight to the speaker, no ffmpeg. |
 | `ELEVENLABS_STABILITY` / `_SIMILARITY` / `_STYLE` / `_SPEED` | `0.5 / 0.75 / 0.0 / 1.0` | Voice settings. |
-| `TTS_CACHE` | `true` | Caches short phrases (the wake acknowledgement, confirmations) in `~/.jarvis/tts-cache` to save credits. |
+| `TTS_CACHE` | `true` | Caches short phrases (the wake acknowledgement, confirmations) in `~/.daxton/tts-cache` to save credits. |
 | `STT_PROVIDER` | `auto` | `whisper` if faster-whisper is installed, else `google`. |
 | `WHISPER_MODEL` | `base.en` | `tiny.en` (fastest), `base.en`, `small.en` (more accurate), `medium.en`, `large-v3`. |
-| `WAKE_MODE` | `auto` | `wakeword` (openWakeWord), `name` (always listening, say "Jarvis" in the sentence), `push_to_talk`. |
+| `WAKE_MODE` | `auto` | `name` (always listening; say the name anywhere in the sentence, fuzzy-matched), `wakeword` (an openWakeWord model), `push_to_talk`. `auto` picks `wakeword` only when a model exists for the name. |
+| `WAKE_WORD` | `auto` | A pre-trained openWakeWord name (`hey_jarvis`) or the path to a custom `.onnx` model you trained (see "Waking Daxton"). |
+| `ASSISTANT_ALIASES` | empty | Other spellings speech-to-text produces for the name, comma-separated (`Dax, Dexton`). |
 | `WAKE_THRESHOLD` | `0.5` | Raise toward 0.7 if it triggers on its own, lower toward 0.35 if it misses you. |
 | `WAKE_ACK`, `WAKE_ACK_TEXT` | `phrase`, `Yes, sir?` | Or `chime` (a two-tone beep) or `none`. |
-| `MIC_DEVICE` | system default | Index or name substring from `jarvis devices`. |
+| `MIC_DEVICE` | system default | Index or name substring from `daxton devices`. |
 | `MIN_SPEECH_RMS`, `SILENCE_SECONDS`, `MAX_UTTERANCE_SECONDS`, `LISTEN_TIMEOUT_SECONDS` | `0.010, 1.2, 15, 8` | Voice activity tuning. The mic calibrates to room noise at startup. |
-| `ASSISTANT_NAME`, `USER_NAME`, `HONORIFIC` | `Jarvis`, empty, `sir` | Persona. |
+| `ASSISTANT_NAME`, `PRODUCT_NAME`, `USER_NAME`, `HONORIFIC` | `Daxton`, `Daxton AI`, empty, `sir` | Persona and branding. |
 | `HISTORY_TURNS`, `MAX_TOOL_ROUNDS`, `MAX_TOKENS` | `8, 6, 400` | Conversation memory, tool chaining depth, reply length. |
-| `JARVIS_DATA_DIR` | `~/.jarvis` | Notes and the voice cache. |
+| `DAXTON_DATA_DIR` | `~/.daxton` | Notes and the voice cache. |
 | `LOG_LEVEL` | `WARNING` | `INFO` shows tool calls and timings; `-v` on the command line is `DEBUG`. |
 
-`.env` is read from the current directory and from `~/.config/jarvis/.env` (so `jarvis` works from any folder).
+`.env` is read from the current directory and from `~/.config/daxton/.env` (so `daxton` works from any folder).
 
 ## Adding a skill
 
 A skill is a function. The docstring becomes the tool description, the annotations become the schema, and the return
-string is what the assistant works from. Drop a module in `jarvis/skills/`, add it to `DEFAULT_SKILL_MODULES` in
-`jarvis/skills/__init__.py`, and both the LLM brain and `jarvis skills` pick it up.
+string is what the assistant works from. Drop a module in `daxton/skills/`, add it to `DEFAULT_SKILL_MODULES` in
+`daxton/skills/__init__.py`, and both the LLM brain and `daxton skills` pick it up.
 
 ```python
-# jarvis/skills/lights.py
+# daxton/skills/lights.py
 from typing import Annotated
-from jarvis.skills.registry import skill
+from daxton.skills.registry import skill
 
 @skill()
 def set_barn_lights(state: Annotated[str, "'on' or 'off'"], zone: Annotated[str, "Which lights, e.g. 'arena'"] = "all") -> str:
@@ -207,12 +223,12 @@ def set_barn_lights(state: Annotated[str, "'on' or 'off'"], zone: Annotated[str,
 
 Add `ctx: SkillContext = None` as a parameter to reach settings, `ctx.speak(text)` and `ctx.stop_event`. Keyword mode
 only knows the built-in patterns; new skills are reachable through an LLM brain (or add a rule in
-`jarvis/brain/keyword_brain.py`).
+`daxton/brain/keyword_brain.py`).
 
 ## How it is put together
 
 ```
-jarvis/
+daxton/
   cli.py            commands (run, chat, ask, say, listen, ui, rate, doctor, devices, voices, skills, download-models)
   events.py         thread-safe event bus (the dashboard's feed)
   config.py         Settings from .env / environment; provider auto-selection
@@ -239,18 +255,19 @@ schema.
 ## Troubleshooting
 
 - **"No usable input device" or it never hears you**: System Settings > Privacy & Security > Microphone, allow your
-  terminal (Terminal, iTerm, VS Code). Then `jarvis devices` and `jarvis listen`.
-- **Wake word never triggers**: `jarvis -v` prints scores; try `WAKE_THRESHOLD=0.35`, speak a little slower, or use
-  `--wake push_to_talk` to rule out the mic. If it triggers by itself, raise the threshold.
+  terminal (Terminal, iTerm, VS Code). Then `daxton devices` and `daxton listen`.
+- **It never answers to its name**: `daxton listen` shows what speech-to-text actually heard; add that spelling to
+  `ASSISTANT_ALIASES`. With a wake-word model, `daxton -v` prints scores; try `WAKE_THRESHOLD=0.35`, or `--wake push_to_talk`
+  to rule out the mic. If a wake model triggers by itself, raise the threshold.
 - **It transcribes its own voice**: the mic is flushed after each reply; if your speakers are loud, use headphones or
   `WAKE_ACK=chime`.
 - **Slow first response**: the Whisper model loads once at startup (a few seconds); the first ElevenLabs reply takes a
   network round trip, cached phrases are instant. `tiny.en` is faster than `base.en`.
-- **ElevenLabs errors**: `jarvis doctor --online` verifies the key and lists voices. Free-tier accounts have a monthly
+- **ElevenLabs errors**: `daxton doctor --online` verifies the key and lists voices. Free-tier accounts have a monthly
   character quota; `TTS_CACHE` keeps repeated phrases free.
-- **No LLM key**: everything still works in keyword mode (`jarvis --llm keyword`), which is the classic experience.
+- **No LLM key**: everything still works in keyword mode (`daxton --llm keyword`), which is the classic experience.
 - **Python 3.14**: some audio wheels lag new Python releases; the setup script pins 3.12 through `uv`.
-- **`ModuleNotFoundError: No module named 'jarvis'` when running `jarvis` from another folder**: Python 3.12+ skips
+- **`ModuleNotFoundError: No module named 'daxton'` when running `daxton` from another folder**: Python 3.12+ skips
   `.pth` files that carry the macOS hidden flag, so the editable install goes invisible. `uv` sets the flag on
   `.venv`, and a folder linked to the Claude desktop app gets every dot-folder re-flagged within seconds, so
   `chflags -R nohidden .venv` only helps briefly. The setup script installs a `sitecustomize.py` in the venv that
@@ -261,9 +278,9 @@ schema.
 
 Wake word detection, speech-to-text and the skills run on your machine. Only the text of what you said (plus tool
 results) goes to the LLM provider you chose, and only the reply text goes to ElevenLabs. Ollama plus `say` is fully
-offline. Notes live in `~/.jarvis/notes.json`.
+offline. Notes live in `~/.daxton/notes.json`.
 
 ## License
 
-MIT for this repository (see `LICENSE`). openWakeWord's pre-trained `hey_jarvis` model is CC BY-NC-SA 4.0
-(non-commercial); train your own model with openWakeWord for commercial use.
+MIT for this repository (see `LICENSE`). openWakeWord's pre-trained models (such as `hey_jarvis`) are CC BY-NC-SA 4.0
+(non-commercial); a model you train yourself with openWakeWord carries no such restriction.
