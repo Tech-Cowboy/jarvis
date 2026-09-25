@@ -47,3 +47,16 @@ def test_doctor_reports_and_formats(settings, monkeypatch):
     assert {"python", "config", "brain", "voice", "ears", "wake", "web"} <= areas
     text = format_checks(checks)
     assert "[OK  ] python" in text and ("problem" in text or "All good" in text)
+
+
+def test_chat_mode_catches_terminal_commands(settings, monkeypatch, capsys):
+    from jarvis.assistant import _looks_like_cli_command
+
+    assert _looks_like_cli_command("jarvis listen") and _looks_like_cli_command("jarvis") \
+        and _looks_like_cli_command("jarvis doctor --online") and _looks_like_cli_command("jarvis -v")
+    assert not _looks_like_cli_command("jarvis, open safari") and not _looks_like_cli_command("jarvis what time is it")
+    a = make_assistant(settings)
+    lines = iter(["jarvis listen", "exit"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(lines))
+    a.run_chat()
+    assert "terminal command" in capsys.readouterr().out

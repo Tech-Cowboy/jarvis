@@ -145,3 +145,19 @@ def test_describe_and_router_integration(settings):
     assert router.ask("write an email to the farrier asking to move Tuesday to Thursday") == "smart says hi"
     assert t.last_route.tier == "smart"
     assert t.requires_no_network if hasattr(t, "requires_no_network") else True
+
+
+def test_falls_back_to_lower_tier_when_higher_tiers_fail():
+    """A rated-fast request whose paid tiers are down still gets handled by the keyword rules."""
+    free = KeywordBrain()
+    fast, smart = FakeLLM("fast", fail=True), FakeLLM("smart", fail=True)
+    t = make(free, fast, smart)
+    # a chained request is rated for the fast tier (a rule would swallow the tail), but the rule still fires
+    resp = t.complete("s", user("open safari and then open spotify"), TOOLS)
+    assert fast.calls == 1 and smart.calls == 1
+    assert resp.tool_calls and resp.tool_calls[0].name == "open_app"
+    assert t.last_route.tier == "free" and t.last_route.escalated
+    # but a keyword miss is not an answer: the real error surfaces
+    with pytest.raises(LLMError) as e:
+        t.complete("s", user("please write me a sonnet about the fog"), TOOLS)
+    assert "fast" in str(e.value) and "smart" in str(e.value)

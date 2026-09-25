@@ -45,7 +45,7 @@ def _rules() -> list[Rule]:
              lambda m: ("end_session", {})),
         Rule(r(r"^(?:set|start)\s+(?:a\s+)?(?:timer|alarm)\s+(?:for\s+)?(?P<d>.+?)[.!?]*$", re.I),
              lambda m: ("set_timer", {"duration": m["d"]})),
-        Rule(r(r"^(?:jarvis[,]?\s*)?(?:please\s+)?(?:can you\s+)?(?:go to|open|launch|start|run)\s+(?:the\s+)?(?:app\s+|application\s+|website\s+|site\s+)?(?P<name>.+?)(?:\s+(?:app|application|for me|please))?[.!?]*$", re.I),
+        Rule(r(r"^(?:(?:jarvis|please|can you|could you|would you|will you|kindly)[,\s]+)*(?:go to|open|launch|start|run)\s+(?:the\s+)?(?:app\s+|application\s+|website\s+|site\s+)?(?P<name>.+?)(?:\s+(?:app|application|for me|please))?[.!?]*$", re.I),
              lambda m: (("open_website", {"name": m["name"]}) if m["name"].strip().lower() in WEBSITES
                         or "." in m["name"] or m["name"].lower().endswith((" website", " site", ".com"))
                         else ("open_app", {"name": m["name"]}))),

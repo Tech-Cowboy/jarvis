@@ -16,6 +16,17 @@ from .tts import Speaker
 
 log = logging.getLogger(__name__)
 
+CLI_COMMANDS = {"run", "chat", "ask", "say", "listen", "rate", "doctor", "devices", "voices", "skills",
+                "download-models"}
+
+
+def _looks_like_cli_command(text: str) -> bool:
+    """'jarvis listen', 'jarvis doctor --online', 'jarvis' typed at the chat prompt instead of the shell."""
+    words = text.strip().lower().split()
+    if not words or words[0] != "jarvis":
+        return False
+    return len(words) == 1 or words[1] in CLI_COMMANDS or words[1].startswith("-")
+
 
 class Assistant:
     def __init__(
@@ -89,6 +100,10 @@ class Assistant:
                 continue
             if text.lower() in {"exit", "quit", "q"}:
                 break
+            if _looks_like_cli_command(text):
+                print(f"That's a terminal command, and this is {name}'s text mode. Type 'exit' first, "
+                      f"then run `{text}` at the shell prompt.\n")
+                continue
             reply = self.handle(text)
             print(f"{name}: {reply}\n")
             if speak:

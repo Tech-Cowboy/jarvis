@@ -79,6 +79,25 @@ class TieredLLM(LLM):
                 continue
             self._record(i, llm, escalated=(i != start))
             return resp
+
+        # Everything above the rated tier is down: fall back to the cheaper tiers so a broken key or an
+        # outage still leaves the classic commands working. A keyword miss is not an answer, so keep going.
+        if self.escalate:
+            for i in range(start - 1, -1, -1):
+                llm = self.tiers[i]
+                if llm is None or id(llm) in tried:
+                    continue
+                tried.add(id(llm))
+                try:
+                    resp = llm.complete(system, messages, tools)
+                except LLMError as e:
+                    errors.append(f"{TIERS[i]} ({llm.describe()}): {e}")
+                    continue
+                if resp.miss:
+                    continue
+                log.warning("higher tiers failed; handled by the %s tier", TIERS[i])
+                self._record(i, llm, escalated=True)
+                return resp
         raise LLMError("; ".join(errors) or "No LLM tier could handle the request.")
 
     def describe(self) -> str:
