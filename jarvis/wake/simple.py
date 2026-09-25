@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import threading
 
-from . import WakeDetector
+from . import WakeDetector, talk_requested
 
 
 class PushToTalk(WakeDetector):
@@ -13,7 +13,7 @@ class PushToTalk(WakeDetector):
 
     name = "push_to_talk"
 
-    def wait(self, stop_event) -> bool:
+    def wait(self, stop_event, talk_event=None) -> bool:
         result: dict[str, bool] = {}
 
         def reader() -> None:
@@ -30,6 +30,8 @@ class PushToTalk(WakeDetector):
             t.join(0.2)
             if stop_event.is_set():
                 return False
+            if talk_requested(talk_event):
+                return True
         if result.get("quit"):
             stop_event.set()
             return False
@@ -41,7 +43,8 @@ class AlwaysListening(WakeDetector):
 
     name = "name"
 
-    def wait(self, stop_event) -> bool:
+    def wait(self, stop_event, talk_event=None) -> bool:
+        talk_requested(talk_event)
         return not stop_event.is_set()
 
     def describe(self) -> str:

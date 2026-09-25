@@ -51,10 +51,11 @@ def resolve_device(spec: str):
 
 
 class Microphone:
-    def __init__(self, sample_rate: int = 16000, frame_ms: int = 80, device: str = ""):
+    def __init__(self, sample_rate: int = 16000, frame_ms: int = 80, device: str = "", on_frame=None):
         self.sample_rate = sample_rate
         self.frame_samples = int(sample_rate * frame_ms / 1000)
         self.device_spec = device
+        self.on_frame = on_frame  # called with every int16 frame on the audio thread (keep it cheap)
         self._queue: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)  # ~32 s of audio
         self._stream = None
         self.ambient_rms = 0.0
@@ -70,10 +71,16 @@ class Microphone:
         def callback(indata, frames, time_info, status):  # noqa: ARG001
             if status:
                 log.debug("mic status: %s", status)
+            frame = indata[:, 0].copy()
             try:
-                self._queue.put_nowait(indata[:, 0].copy())
+                self._queue.put_nowait(frame)
             except queue.Full:
                 pass  # drop audio rather than block the audio thread
+            if self.on_frame is not None:
+                try:
+                    self.on_frame(frame)
+                except Exception:  # a dashboard hiccup must never touch the audio path
+                    pass
 
         self._stream = sd.InputStream(
             samplerate=self.sample_rate,

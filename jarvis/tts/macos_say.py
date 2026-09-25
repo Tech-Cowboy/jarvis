@@ -17,6 +17,7 @@ class SaySpeaker(Speaker):
         if platform.system() != "Darwin" or not shutil.which("say"):
             raise RuntimeError("The `say` command is only available on macOS.")
         self.voice = voice
+        self._proc = None
 
     def say(self, text: str) -> None:
         text = clean_for_speech(text)
@@ -26,7 +27,16 @@ class SaySpeaker(Speaker):
         if self.voice:
             cmd += ["-v", self.voice]
         with playback_lock:
-            subprocess.run(cmd, input=text, text=True, check=False)
+            self._proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, text=True)
+            try:
+                self._proc.communicate(text)
+            finally:
+                self._proc = None
+
+    def stop(self) -> None:
+        proc = self._proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
 
     def describe(self) -> str:
         return f"macOS say ({self.voice or 'default voice'})"

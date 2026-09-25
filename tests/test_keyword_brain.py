@@ -78,3 +78,8 @@ def test_tool_result_is_spoken_verbatim():
 def test_only_available_tools_are_used():
     resp = KeywordBrain().complete("", [Message("user", "open safari")], [])
     assert not resp.tool_calls
+
+
+def test_timer_label_is_extracted():
+    assert route("set a timer for 12 minutes for the eggs") == ("set_timer", {"duration": "12 minutes", "label": "eggs"})
+    assert route("start timer 1 hour 15 minutes") == ("set_timer", {"duration": "1 hour 15 minutes"})

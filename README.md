@@ -11,7 +11,8 @@ A classic Python voice assistant, rebuilt with today's open-source parts.
 ```
 
 Say **"hey Jarvis, open Spotify"**, **"hey Jarvis, what's the weather in Daly City"**, **"hey Jarvis, set a timer for
-ten minutes"** and it does it, out loud, in your ElevenLabs voice. Everything runs on your Mac except the two paid APIs you
+ten minutes"** and it does it, out loud, in your ElevenLabs voice, with a live holographic dashboard (`jarvis ui`) showing
+what it hears, thinks and does. Everything runs on your Mac except the two paid APIs you
 choose to plug in (the LLM and the voice), and both have free fallbacks.
 
 ## Lineage
@@ -58,6 +59,34 @@ uv pip install -e ".[all,dev]"       # or: pip install -e ".[all,dev]"
 jarvis download-models               # faster-whisper base.en (~150 MB) and the hey_jarvis wake model (~6 MB)
 ```
 
+## The dashboard
+
+![JARVIS dashboard](docs/dashboard.png)
+
+```bash
+jarvis ui            # voice mode plus the live HUD at http://127.0.0.1:8765 (opens your browser)
+jarvis ui --app      # chromeless app window (Chrome, Brave or Edge), F11 or the corner button for full screen
+jarvis ui --no-voice # dashboard only: type requests, no microphone loop
+```
+
+The HUD is a local web page served by the assistant itself, so it mirrors the real thing: the core in the middle
+changes with the assistant's state (standby, listening, decoding, processing, speaking) and pulses with the live
+microphone and voice spectrum; the log shows every request, tool call and reply with its route badge (tier, score,
+model); the Router panel shows the complexity score and the reasons behind the last routing decision; Systems shows
+the three tiers with live highlighting and per-tier counts; Telemetry shows CPU, memory, disk, battery, load, network
+and uptime from the machine. Controls: type a request and press Enter, `space` for push-to-talk, `Esc` to stop it
+mid-sentence, mute, pin a tier, clear the conversation, and one-click skills (screenshot, battery, timers). It is a
+single self-contained HTML file with no external assets, so it works offline and in any modern browser.
+
+The look is an original holographic command-center design in the classic movie-AI spirit: cyan and amber on dark,
+concentric rings, ticks, scan lines. Fonts are the system's own, so nothing is fetched from the internet.
+
+Under the hood: `jarvis/events.py` is a thread-safe event bus the assistant publishes to (state, transcript, tool,
+route, audio analysis at 12 Hz, telemetry at 1 Hz); `jarvis/ui/server.py` is a FastAPI app with a WebSocket that
+streams the bus to every open dashboard and accepts commands (`say`, `talk`, `stop_speaking`, `pin_tier`, `mute`,
+`new_conversation`, `run_skill`); `GET /api/state` returns a snapshot and `POST /api/command` runs a command, so
+anything else (a Stream Deck button, a shortcut, another app) can drive the assistant too.
+
 ## Free by default, smarter when it matters
 
 Every request is scored for complexity before any model is called (a deterministic rater, microseconds, no API), and
@@ -96,6 +125,7 @@ keyword rules; without it, anything the rules cannot parse goes straight to the 
 | `jarvis ask "open safari"` | One request, one reply, exit. |
 | `jarvis say "Good evening, sir."` | Test the configured voice. |
 | `jarvis listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
+| `jarvis ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
 | `jarvis rate "..."` | Show the complexity score, the reasons, and which tier and model would take the request. |
 | `jarvis doctor [--online]` | Check every stage; `--online` also calls the LLM and ElevenLabs APIs. |
 | `jarvis devices` | List microphones (set `MIC_DEVICE` in `.env`). |
@@ -183,11 +213,13 @@ only knows the built-in patterns; new skills are reachable through an LLM brain 
 
 ```
 jarvis/
-  cli.py            commands (run, chat, ask, say, listen, doctor, devices, voices, skills, download-models)
+  cli.py            commands (run, chat, ask, say, listen, ui, rate, doctor, devices, voices, skills, download-models)
+  events.py         thread-safe event bus (the dashboard's feed)
   config.py         Settings from .env / environment; provider auto-selection
   assistant.py      the loop: wake -> record -> transcribe -> router -> speak
   doctor.py         setup checks
-  audio/            mic.py (sounddevice capture + energy VAD), player.py (streamed PCM playback), chime.py
+  audio/            mic.py (sounddevice capture + energy VAD), player.py (streamed PCM playback), chime.py,
+                    analysis.py (level + 16-band spectrum for the HUD)
   wake/             oww.py (openWakeWord), simple.py (push-to-talk, always-listening)
   stt/              whisper_local.py (faster-whisper), google_sr.py (SpeechRecognition)
   tts/              elevenlabs_tts.py (streaming + phrase cache), macos_say.py, console.py
@@ -195,7 +227,8 @@ jarvis/
                     rating.py (complexity score -> tier), tiered.py (free -> fast -> smart with escalation),
                     anthropic_llm.py, openai_llm.py, ollama_llm.py, keyword_brain.py, factory.py
   skills/           registry.py (@skill), apps.py, web.py, system.py, files.py, notes.py, timers.py, control.py
-tests/              125 tests, no network, no audio hardware needed:  pytest
+  ui/               server.py (FastAPI + WebSocket + telemetry), static/index.html (the HUD)
+tests/              140+ tests, no network, no audio hardware needed:  pytest
 scripts/            setup_mac.sh
 ```
 

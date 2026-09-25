@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from ..audio.mic import Microphone
-from . import WakeDetector
+from . import WakeDetector, talk_requested
 
 log = logging.getLogger(__name__)
 
@@ -49,10 +49,12 @@ class OpenWakeWordDetector(WakeDetector):
         self._key = next(iter(self.model.models.keys()))
         self._last_trigger = 0.0
 
-    def wait(self, stop_event) -> bool:
+    def wait(self, stop_event, talk_event=None) -> bool:
         self.model.reset()
         self.mic.flush()
         while not stop_event.is_set():
+            if talk_requested(talk_event):
+                return True
             frame = self.mic.read_frame(timeout=0.5)
             if frame is None:
                 continue

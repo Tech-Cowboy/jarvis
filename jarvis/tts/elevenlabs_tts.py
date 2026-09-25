@@ -72,8 +72,9 @@ class ElevenLabsSpeaker(Speaker):
         if not text:
             return
         cache_path = self._cache_path(text)
+        on_chunk = (lambda data: self.on_chunk(data, self.sample_rate)) if self.on_chunk else None
         if cache_path and cache_path.is_file():
-            play_pcm16_bytes(cache_path.read_bytes(), self.sample_rate)
+            play_pcm16_bytes(cache_path.read_bytes(), self.sample_rate, on_chunk=on_chunk)
             return
         stream = self.client.text_to_speech.stream(
             voice_id=self.voice_id,
@@ -82,7 +83,7 @@ class ElevenLabsSpeaker(Speaker):
             output_format=self.output_format,
             voice_settings=self.voice_settings,
         )
-        played = play_pcm16_stream(stream, self.sample_rate)
+        played = play_pcm16_stream(stream, self.sample_rate, on_chunk=on_chunk)
         if cache_path and played:
             try:
                 cache_path.write_bytes(played)

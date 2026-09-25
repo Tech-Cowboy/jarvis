@@ -10,10 +10,17 @@ from ..config import Settings
 
 class Speaker(ABC):
     name: str = "tts"
+    on_chunk = None  # optional callable(pcm16_bytes, sample_rate) fed while audio plays (dashboard visualiser)
 
     @abstractmethod
     def say(self, text: str) -> None:
         raise NotImplementedError
+
+    def stop(self) -> None:
+        """Interrupt the current utterance if the backend supports it."""
+        from ..audio.player import stop_playback
+
+        stop_playback()
 
     def describe(self) -> str:
         return self.name

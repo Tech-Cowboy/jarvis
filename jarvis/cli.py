@@ -134,6 +134,41 @@ def cmd_rate(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ui(settings: Settings, args: argparse.Namespace) -> int:
+    """Start the dashboard server, open it, and run the assistant (voice loop unless --no-voice)."""
+    import time as _time
+
+    from .ui.server import open_dashboard, run_server
+
+    voice = not args.no_voice
+    assistant = None
+    if voice:
+        try:
+            assistant = _build_assistant(settings, voice=True)
+        except Exception as e:
+            print(f"voice mode unavailable ({e}); starting the dashboard in text mode", file=sys.stderr)
+            voice = False
+    if assistant is None:
+        settings.tts_provider = settings.tts_provider if args.tts else settings.resolved_tts_provider()
+        assistant = _build_assistant(settings, voice=False)
+    url = f"http://{args.host}:{args.port}"
+    run_server(assistant, host=args.host, port=args.port)
+    print(f"Dashboard: {url}")
+    if not args.no_browser:
+        print(f"Opened in {open_dashboard(url, app_window=args.app)}.")
+    if voice:
+        assistant.run_voice()
+        return 0
+    assistant._set_state("idle")
+    print("Text mode: type requests in the dashboard. Ctrl-C to stop.")
+    try:
+        while not assistant.stop_event.is_set():
+            _time.sleep(0.25)
+    except KeyboardInterrupt:
+        print()
+    return 0
+
+
 def cmd_doctor(settings: Settings, args: argparse.Namespace) -> int:
     from .doctor import FAIL, format_checks, run_checks
 
@@ -217,6 +252,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("text", nargs="+")
     s.set_defaults(func=cmd_say)
     sub.add_parser("listen", help="record one utterance and print the transcript").set_defaults(func=cmd_listen)
+    u = sub.add_parser("ui", help="open the dashboard (voice mode plus a live web HUD)")
+    u.add_argument("--host", default="127.0.0.1")
+    u.add_argument("--port", type=int, default=8765)
+    u.add_argument("--no-voice", action="store_true", help="dashboard only, no microphone loop")
+    u.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    u.add_argument("--app", action="store_true", help="open as a chromeless app window (Chrome, Brave, Edge)")
+    u.set_defaults(func=cmd_ui)
     r = sub.add_parser("rate", help="show the complexity score and tier a request would get")
     r.add_argument("text", nargs="*", help="the request (or pipe lines on stdin)")
     r.set_defaults(func=cmd_rate)

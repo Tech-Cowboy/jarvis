@@ -12,6 +12,12 @@ log = logging.getLogger(__name__)
 
 # One speaker at a time: timers may speak from a background thread.
 playback_lock = threading.RLock()
+_stop_requested = threading.Event()
+
+
+def stop_playback() -> None:
+    """Ask the current PCM playback to end at the next chunk (used by the dashboard's stop button)."""
+    _stop_requested.set()
 
 
 def play_pcm16_stream(chunks: Iterable[bytes], sample_rate: int, on_chunk=None) -> bytes:
@@ -21,8 +27,12 @@ def play_pcm16_stream(chunks: Iterable[bytes], sample_rate: int, on_chunk=None) 
     played = bytearray()
     leftover = b""
     with playback_lock:
+        _stop_requested.clear()
         with sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16") as stream:
             for chunk in chunks:
+                if _stop_requested.is_set():
+                    stream.abort()
+                    break
                 if not chunk:
                     continue
                 data = leftover + chunk
@@ -38,8 +48,10 @@ def play_pcm16_stream(chunks: Iterable[bytes], sample_rate: int, on_chunk=None) 
     return bytes(played)
 
 
-def play_pcm16_bytes(data: bytes, sample_rate: int) -> None:
-    play_pcm16_stream([data], sample_rate)
+def play_pcm16_bytes(data: bytes, sample_rate: int, on_chunk=None, chunk_bytes: int = 4800) -> None:
+    """Play a whole PCM buffer in small chunks so it stays interruptible and the analyser sees it."""
+    chunks = (data[i:i + chunk_bytes] for i in range(0, len(data), chunk_bytes))
+    play_pcm16_stream(chunks, sample_rate, on_chunk=on_chunk)
 
 
 def play_float32(samples: np.ndarray, sample_rate: int) -> None:

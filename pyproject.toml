@@ -35,6 +35,7 @@ ollama = ["ollama>=0.4"]
 whisper = ["faster-whisper>=1.1"]
 google = ["SpeechRecognition>=3.10"]
 wake = ["openwakeword>=0.6", "onnxruntime>=1.16"]
+ui = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "psutil>=5.9"]
 all = [
   "sounddevice>=0.4.6",
   "elevenlabs>=2.0",
@@ -45,8 +46,11 @@ all = [
   "SpeechRecognition>=3.10",
   "openwakeword>=0.6",
   "onnxruntime>=1.16",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.29",
+  "psutil>=5.9",
 ]
-dev = ["pytest>=7.4"]
+dev = ["pytest>=7.4", "fastapi>=0.110", "psutil>=5.9"]
 
 [project.scripts]
 jarvis = "jarvis.cli:main"
@@ -56,6 +60,9 @@ Homepage = "https://github.com/Tech-Cowboy/jarvis"
 
 [tool.setuptools.packages.find]
 include = ["jarvis*"]
+
+[tool.setuptools.package-data]
+jarvis = ["ui/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
