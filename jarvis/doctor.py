@@ -43,6 +43,21 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
 
     # --- brain
     provider = settings.resolved_llm_provider()
+    if settings.uses_tiers():
+        specs = settings.resolved_tier_specs()
+        distinct = len(set(specs.values()))
+        detail = f"tiered routing: free={specs['free']}  fast={specs['fast']}  smart={specs['smart']}"
+        if distinct == 1 and specs["free"] == "keyword":
+            add(Check(WARN, "routing", detail, "add ANTHROPIC_API_KEY or OPENAI_API_KEY for the fast and smart tiers"))
+        elif distinct == 1:
+            add(Check(WARN, "routing", detail, "all tiers use the same model; set LLM_TIER_SMART for a stronger one"))
+        else:
+            add(Check(OK, "routing", detail))
+        if not settings.ollama_reachable():
+            add(Check(WARN, "free-tier", "Ollama not running: free tier is keyword rules only",
+                      f"brew install ollama && ollama pull {settings.ollama_model}   (free local model for simple requests)"))
+        else:
+            add(Check(OK, "free-tier", f"Ollama reachable ({settings.ollama_model})"))
     if provider == "anthropic":
         ok = _importable("anthropic")
         add(Check(OK if ok else FAIL, "brain", f"Anthropic, model {settings.anthropic_model}, key {settings.masked(settings.anthropic_api_key)}",

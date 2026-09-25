@@ -55,7 +55,15 @@ class Assistant:
     # ------------------------------------------------------------------ core
     def handle(self, text: str) -> str:
         """Text in, reply text out (no audio)."""
-        return self.router.ask(text)
+        reply = self.router.ask(text)
+        route = getattr(self.llm, "last_route", None)
+        if route is not None and self.show_tools:
+            print(f"  ↳ route: {route}", flush=True)
+        return reply
+
+    def routing_summary(self) -> str | None:
+        summary = getattr(self.llm, "summary", None)
+        return summary() if callable(summary) else None
 
     def speak(self, text: str) -> None:
         if not text:
@@ -85,6 +93,9 @@ class Assistant:
             print(f"{name}: {reply}\n")
             if speak:
                 self.speak(reply)
+        summary = self.routing_summary()
+        if summary:
+            print(summary)
 
     def run_voice(self) -> None:
         """Voice mode. Requires mic, transcriber and wake detector."""
@@ -97,6 +108,9 @@ class Assistant:
         self.mic.calibrate()
         print(f"{name} online. Brain: {self.llm.describe()}. Voice: {self.speaker.describe()}. "
               f"Ears: {self.transcriber.describe()}. Wake: {self.wake.describe()}.")
+        if self.mic.ambient_rms == 0.0:
+            print("Warning: the microphone is delivering digital silence. If nothing is heard, set MIC_DEVICE "
+                  "in .env to a real input from `jarvis devices` (for example 'MacBook Pro Microphone').")
         if mode == "name":
             print(f"Say '{name}' anywhere in a sentence. Ctrl-C to quit.")
         elif mode == "wakeword":
@@ -137,6 +151,9 @@ class Assistant:
             print("\nStopping.")
         finally:
             self.mic.stop()
+            summary = self.routing_summary()
+            if summary:
+                print(summary)
 
     # -------------------------------------------------------------- helpers
     def _acknowledge(self) -> None:

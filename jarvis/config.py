@@ -60,16 +60,28 @@ class Settings:
     honorific: str = "sir"
 
     # Brain (LLM)
-    llm_provider: str = "auto"  # auto | anthropic | openai | ollama | keyword
+    llm_provider: str = "auto"  # auto | anthropic | openai | ollama | keyword  (pins one provider, no tiers)
     anthropic_api_key: str = ""
-    anthropic_model: str = "claude-haiku-4-5-20251001"
+    anthropic_model: str = "claude-haiku-4-5-20251001"  # fast tier
+    anthropic_smart_model: str = "claude-sonnet-5"  # smart tier
     openai_api_key: str = ""
-    openai_model: str = "gpt-6-luna"
-    ollama_model: str = "qwen3:4b"
+    openai_model: str = "gpt-6-luna"  # fast tier
+    openai_smart_model: str = "gpt-6-sol"  # smart tier
+    ollama_model: str = "qwen3:4b"  # free tier (local)
+    ollama_smart_model: str = ""  # optional bigger local model for the smart tier when no hosted key is set
     ollama_host: str = ""
     max_tokens: int = 400
     history_turns: int = 8
     max_tool_rounds: int = 6
+
+    # Tiered routing (complexity rating)
+    llm_routing: str = "auto"  # auto | free | fast | smart (pin a tier) | off (single provider)
+    llm_tier_free: str = "auto"  # provider[:model] e.g. ollama:qwen3:4b, keyword
+    llm_tier_fast: str = "auto"  # e.g. anthropic:claude-haiku-4-5-20251001, openai:gpt-6-luna
+    llm_tier_smart: str = "auto"  # e.g. anthropic:claude-sonnet-5, anthropic:claude-opus-5-5, openai:gpt-6-sol
+    routing_fast_threshold: float = 0.30
+    routing_smart_threshold: float = 0.60
+    routing_escalate: bool = True  # move up a tier when the chosen tier fails or cannot handle the request
 
     # Voice (TTS)
     tts_provider: str = "auto"  # auto | elevenlabs | say | console
@@ -124,17 +136,58 @@ class Settings:
     def is_macos(self) -> bool:
         return platform.system() == "Darwin"
 
+    def ollama_reachable(self) -> bool:
+        """Is a local Ollama server answering? Checked once per Settings instance."""
+        if not hasattr(self, "_ollama_ok"):
+            self._ollama_ok = _ollama_reachable(self.ollama_host)
+        return self._ollama_ok
+
     def resolved_llm_provider(self) -> str:
-        """Pick the LLM provider: explicit setting, else first one with credentials, else keyword mode."""
+        """Pick a single LLM provider: explicit setting, else first one with credentials, else keyword mode."""
         if self.llm_provider != "auto":
             return self.llm_provider
         if self.anthropic_api_key:
             return "anthropic"
         if self.openai_api_key:
             return "openai"
-        if _ollama_reachable(self.ollama_host):
+        if self.ollama_reachable():
             return "ollama"
         return "keyword"
+
+    def uses_tiers(self) -> bool:
+        """Tiered routing is on unless a single provider was pinned or routing is off."""
+        return self.llm_provider == "auto" and self.llm_routing != "off"
+
+    def resolved_tier_specs(self) -> dict[str, str]:
+        """provider[:model] for each tier. 'auto' fills in from the keys present.
+
+        free  : a local Ollama model when one is running, else keyword rules (no model at all)
+        fast  : Claude Haiku, else the OpenAI fast model, else the free tier
+        smart : Claude Sonnet, else the OpenAI smart model, else a bigger Ollama model, else the fast tier
+        """
+        ollama_ok = self.ollama_reachable()
+        free = self.llm_tier_free
+        if free == "auto":
+            free = f"ollama:{self.ollama_model}" if ollama_ok else "keyword"
+        fast = self.llm_tier_fast
+        if fast == "auto":
+            if self.anthropic_api_key:
+                fast = f"anthropic:{self.anthropic_model}"
+            elif self.openai_api_key:
+                fast = f"openai:{self.openai_model}"
+            else:
+                fast = free
+        smart = self.llm_tier_smart
+        if smart == "auto":
+            if self.anthropic_api_key:
+                smart = f"anthropic:{self.anthropic_smart_model}"
+            elif self.openai_api_key:
+                smart = f"openai:{self.openai_smart_model}"
+            elif ollama_ok and self.ollama_smart_model:
+                smart = f"ollama:{self.ollama_smart_model}"
+            else:
+                smart = fast
+        return {"free": free, "fast": fast, "smart": smart}
 
     def resolved_tts_provider(self) -> str:
         if self.tts_provider != "auto":
@@ -193,13 +246,23 @@ def load_settings() -> Settings:
         llm_provider=e("LLM_PROVIDER", "auto").strip().lower(),
         anthropic_api_key=e("ANTHROPIC_API_KEY", ""),
         anthropic_model=e("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+        anthropic_smart_model=e("ANTHROPIC_SMART_MODEL", "claude-sonnet-5"),
         openai_api_key=e("OPENAI_API_KEY", ""),
         openai_model=e("OPENAI_MODEL", "gpt-6-luna"),
+        openai_smart_model=e("OPENAI_SMART_MODEL", "gpt-6-sol"),
         ollama_model=e("OLLAMA_MODEL", "qwen3:4b"),
+        ollama_smart_model=e("OLLAMA_SMART_MODEL", ""),
         ollama_host=e("OLLAMA_HOST", ""),
         max_tokens=_int(e("MAX_TOKENS"), 400),
         history_turns=_int(e("HISTORY_TURNS"), 8),
         max_tool_rounds=_int(e("MAX_TOOL_ROUNDS"), 6),
+        llm_routing=e("LLM_ROUTING", "auto").strip().lower(),
+        llm_tier_free=e("LLM_TIER_FREE", "auto").strip(),
+        llm_tier_fast=e("LLM_TIER_FAST", "auto").strip(),
+        llm_tier_smart=e("LLM_TIER_SMART", "auto").strip(),
+        routing_fast_threshold=_float(e("ROUTING_FAST_THRESHOLD"), 0.30),
+        routing_smart_threshold=_float(e("ROUTING_SMART_THRESHOLD"), 0.60),
+        routing_escalate=_bool(e("ROUTING_ESCALATE"), True),
         tts_provider=e("TTS_PROVIDER", "auto").strip().lower(),
         elevenlabs_api_key=e("ELEVENLABS_API_KEY", "") or e("ELEVEN_API_KEY", ""),
         elevenlabs_voice_id=e("ELEVENLABS_VOICE_ID", "onwK4e9ZLuTAKqWW03F9"),

@@ -24,7 +24,7 @@ here (listen, recognize, route, act, speak) with each stage swapped for a modern
 |---|---|---|---|
 | Wake word | none (always listening) | [openWakeWord](https://github.com/dscripka/openWakeWord) pre-trained `hey_jarvis` | Apache-2.0 code, CC BY-NC-SA 4.0 model |
 | Speech to text | Google Web Speech via `SpeechRecognition` | [faster-whisper](https://github.com/SYSTRAN/faster-whisper) locally (Google SR still available) | MIT |
-| Brain | `if "open" in command:` keyword matching | LLM tool calling (Anthropic, OpenAI or Ollama), keyword mode kept as the free fallback | MIT SDKs |
+| Brain | `if "open" in command:` keyword matching | Complexity-rated tiers: keyword rules or a local Ollama model for the simple stuff, Claude Haiku / Sonnet (or OpenAI) only when the request needs them | MIT SDKs |
 | Skills | inline functions | `@skill` registry, one module per domain | this repo, MIT |
 | Voice | `pyttsx3` | [ElevenLabs](https://elevenlabs.io) streamed PCM, macOS `say` as fallback | MIT SDK |
 | Web search | `webbrowser.open("google.com/search?q=")` | [ddgs](https://github.com/deedy5/ddgs) results summarized by the brain, plus the classic "open it in the browser" | MIT |
@@ -58,6 +58,35 @@ uv pip install -e ".[all,dev]"       # or: pip install -e ".[all,dev]"
 jarvis download-models               # faster-whisper base.en (~150 MB) and the hey_jarvis wake model (~6 MB)
 ```
 
+## Free by default, smarter when it matters
+
+Every request is scored for complexity before any model is called (a deterministic rater, microseconds, no API), and
+the score picks a tier:
+
+| Tier | Handles | Default model |
+|---|---|---|
+| **free** | commands, lookups, small talk ("open Safari", "what time is it", "set a timer") | a local Ollama model if one is running, otherwise the classic keyword rules (no model at all) |
+| **fast** | free-form actions, factual questions, short summaries, jokes | Claude Haiku 4.5 (or the OpenAI fast model) |
+| **smart** | reasoning, comparisons, writing, multi-step plans, long or subtle asks | Claude Sonnet 5 (or the OpenAI smart model) |
+
+If the chosen tier fails (offline, rate limit, bad key) or cannot handle the request (the keyword rules do not match),
+it escalates to the next tier automatically. Short follow-ups ("and the second one?") stay on the tier the previous
+turn used. The tool-calling loop keeps one tier per turn. Every reply in `jarvis chat` prints its route, and the
+session ends with a count per tier.
+
+```bash
+jarvis rate "compare the pros and cons of buying versus leasing a horse trailer"
+#  score 0.90  ->  smart tier  (anthropic:claude-sonnet-5)
+#  12 words; reasoning: compare, pros and cons, versus; long reasoning question
+jarvis --tier free chat     # pin a tier for this run (free | fast | smart), or --tier off for a single provider
+```
+
+Tune it in `.env`: `LLM_TIER_FREE`, `LLM_TIER_FAST`, `LLM_TIER_SMART` take `provider[:model]` (for example
+`ollama:qwen3:4b`, `anthropic:claude-opus-5-5`, `openai:gpt-6-astra`, `keyword`); `ROUTING_FAST_THRESHOLD` and
+`ROUTING_SMART_THRESHOLD` move the cut-offs (defaults 0.30 and 0.60); `ROUTING_ESCALATE=false` disables escalation.
+Install Ollama (`brew install ollama && ollama pull qwen3:4b`) to make the free tier a real local model instead of
+keyword rules; without it, anything the rules cannot parse goes straight to the fast tier.
+
 ## Commands
 
 | Command | What it does |
@@ -67,15 +96,16 @@ jarvis download-models               # faster-whisper base.en (~150 MB) and the 
 | `jarvis ask "open safari"` | One request, one reply, exit. |
 | `jarvis say "Good evening, sir."` | Test the configured voice. |
 | `jarvis listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
+| `jarvis rate "..."` | Show the complexity score, the reasons, and which tier and model would take the request. |
 | `jarvis doctor [--online]` | Check every stage; `--online` also calls the LLM and ElevenLabs APIs. |
 | `jarvis devices` | List microphones (set `MIC_DEVICE` in `.env`). |
 | `jarvis voices` | List the ElevenLabs voices on your account. |
 | `jarvis skills` | List the tools the brain can call. |
 | `jarvis download-models` | Pre-download the Whisper and wake word models. |
 
-Global flags override `.env` for one run: `--llm`, `--tts`, `--stt`, `--wake`, `-v` (debug logging).
-Examples: `jarvis --wake push_to_talk` (press Enter to talk), `jarvis --llm keyword chat` (no API at all),
-`jarvis --tts say` (skip ElevenLabs), `jarvis --stt google` (no Whisper download).
+Global flags override `.env` for one run: `--tier`, `--llm`, `--tts`, `--stt`, `--wake`, `-v` (debug logging).
+Examples: `jarvis --wake push_to_talk` (press Enter to talk), `jarvis --tier free chat` (never leave the free tier),
+`jarvis --llm keyword chat` (no API at all), `jarvis --tts say` (skip ElevenLabs), `jarvis --stt google` (no Whisper download).
 
 ## What you can say
 
@@ -97,10 +127,14 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LLM_PROVIDER` | `auto` | `auto` picks Anthropic, then OpenAI, then a running Ollama, then `keyword`. |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Haiku is the fastest for voice; any Claude model with tool use works. |
-| `OPENAI_API_KEY`, `OPENAI_MODEL` | `gpt-6-luna` | Any Chat Completions model with function calling. |
-| `OLLAMA_MODEL`, `OLLAMA_HOST` | `qwen3:4b` | Needs a tool-capable model (`ollama pull qwen3:4b`). |
+| `LLM_ROUTING` | `auto` | `auto` rates each request and picks a tier; `free` / `fast` / `smart` pins one; `off` uses the single `LLM_PROVIDER`. |
+| `LLM_TIER_FREE`, `LLM_TIER_FAST`, `LLM_TIER_SMART` | `auto` | `provider[:model]` per tier. `auto` = Ollama or keyword / Haiku / Sonnet from the keys present. |
+| `ROUTING_FAST_THRESHOLD`, `ROUTING_SMART_THRESHOLD` | `0.30`, `0.60` | Score cut-offs; `jarvis rate` shows where a request lands. |
+| `ROUTING_ESCALATE` | `true` | Move up a tier when the chosen one fails or cannot handle the request. |
+| `LLM_PROVIDER` | `auto` | Pin one provider (turns tiers off): `anthropic`, `openai`, `ollama` or `keyword`. |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `ANTHROPIC_SMART_MODEL` | `claude-haiku-4-5-20251001`, `claude-sonnet-5` | Fast and smart tier models (`claude-opus-5-5` for the strongest). |
+| `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_SMART_MODEL` | `gpt-6-luna`, `gpt-6-sol` | Any Chat Completions models with function calling (`gpt-6-astra` is the most capable). |
+| `OLLAMA_MODEL`, `OLLAMA_SMART_MODEL`, `OLLAMA_HOST` | `qwen3:4b`, empty | Local free tier; optional bigger local model for the smart tier when no hosted key is set. |
 | `TTS_PROVIDER` | `auto` | `elevenlabs` when a key is set, else `say` on macOS, else `console`. |
 | `ELEVENLABS_API_KEY` | | Your ElevenLabs key. |
 | `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_NAME` | `onwK4e9ZLuTAKqWW03F9` (Daniel) | `jarvis voices` lists yours; a name resolves to an ID at startup. |
@@ -157,9 +191,10 @@ jarvis/
   stt/              whisper_local.py (faster-whisper), google_sr.py (SpeechRecognition)
   tts/              elevenlabs_tts.py (streaming + phrase cache), macos_say.py, console.py
   brain/            base.py (neutral Message/ToolSpec types), router.py (tool loop), prompts.py,
+                    rating.py (complexity score -> tier), tiered.py (free -> fast -> smart with escalation),
                     anthropic_llm.py, openai_llm.py, ollama_llm.py, keyword_brain.py, factory.py
   skills/           registry.py (@skill), apps.py, web.py, system.py, files.py, notes.py, timers.py, control.py
-tests/              93 tests, no network, no audio hardware needed:  pytest
+tests/              125 tests, no network, no audio hardware needed:  pytest
 scripts/            setup_mac.sh
 ```
 

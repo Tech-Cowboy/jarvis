@@ -47,6 +47,7 @@ class Message:
 class LLMResponse:
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
+    miss: bool = False  # True when a limited brain (keyword mode) could not handle the request at all
 
 
 class LLM(ABC):

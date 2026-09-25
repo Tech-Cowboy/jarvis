@@ -19,7 +19,8 @@ def _setup_logging(verbose: bool, settings: Settings) -> None:
 
 
 def _apply_overrides(settings: Settings, args: argparse.Namespace) -> None:
-    for attr, key in (("llm", "llm_provider"), ("tts", "tts_provider"), ("stt", "stt_provider"), ("wake", "wake_mode")):
+    for attr, key in (("llm", "llm_provider"), ("tts", "tts_provider"), ("stt", "stt_provider"), ("wake", "wake_mode"),
+                      ("tier", "llm_routing")):
         val = getattr(args, attr, None)
         if val:
             setattr(settings, key, val)
@@ -27,10 +28,10 @@ def _apply_overrides(settings: Settings, args: argparse.Namespace) -> None:
 
 def _build_assistant(settings: Settings, voice: bool):
     from .assistant import Assistant
-    from .brain.factory import make_llm
+    from .brain.factory import make_brain
     from .tts import make_speaker
 
-    llm = make_llm(settings)
+    llm = make_brain(settings)
     speaker = make_speaker(settings)
     if not voice:
         return Assistant(settings, llm, speaker)
@@ -98,6 +99,8 @@ def cmd_listen(settings: Settings, args: argparse.Namespace) -> int:
     with Microphone(sample_rate=settings.sample_rate, device=settings.mic_device) as mic:
         mic.calibrate()
         print(f"Ambient noise rms={mic.ambient_rms:.4f}. Speak now ...")
+        if mic.ambient_rms == 0.0:
+            print("(digital silence: if nothing is heard, set MIC_DEVICE to a real input from `jarvis devices`)")
         audio = mic.record_utterance(
             min_speech_rms=settings.min_speech_rms, silence_seconds=settings.silence_seconds,
             max_seconds=settings.max_utterance_seconds, start_timeout=settings.listen_timeout_seconds,
@@ -107,6 +110,27 @@ def cmd_listen(settings: Settings, args: argparse.Namespace) -> int:
         return 1
     print(f"Recorded {len(audio) / settings.sample_rate:.1f}s, transcribing with {transcriber.describe()} ...")
     print("Heard:", transcriber.transcribe(audio, settings.sample_rate) or "(nothing intelligible)")
+    return 0
+
+
+def cmd_rate(settings: Settings, args: argparse.Namespace) -> int:
+    """Show how the complexity rater scores a request and which tier would take it."""
+    from .brain.factory import parse_spec
+    from .brain.rating import ComplexityRater
+    from .skills import load_default_skills
+
+    specs = settings.resolved_tier_specs()
+    rater = ComplexityRater(settings.routing_fast_threshold, settings.routing_smart_threshold,
+                            free_is_llm=(parse_spec(specs["free"])[0] != "keyword"),
+                            assistant_name=settings.assistant_name)
+    tools = set(load_default_skills().names())
+    texts = [" ".join(args.text)] if args.text else [line.strip() for line in sys.stdin if line.strip()]
+    for text in texts:
+        r = rater.rate(text, tools)
+        print(f'"{text}"\n  score {r.score:.2f}  ->  {r.tier} tier  ({specs[r.tier]})')
+        print("  " + "; ".join(r.reasons))
+    print(f"\nthresholds: fast >= {settings.routing_fast_threshold}, smart >= {settings.routing_smart_threshold}"
+          f"   tiers: free={specs['free']}  fast={specs['fast']}  smart={specs['smart']}")
     return 0
 
 
@@ -172,7 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jarvis", description="Classic Python JARVIS voice assistant.")
     p.add_argument("--version", action="version", version=f"jarvis {__version__}")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
-    p.add_argument("--llm", choices=["auto", "anthropic", "openai", "ollama", "keyword"], help="override LLM_PROVIDER")
+    p.add_argument("--llm", choices=["auto", "anthropic", "openai", "ollama", "keyword"],
+                   help="pin one provider (turns tiered routing off)")
+    p.add_argument("--tier", choices=["auto", "free", "fast", "smart", "off"],
+                   help="override LLM_ROUTING: auto rates each request; free/fast/smart pins a tier")
     p.add_argument("--tts", choices=["auto", "elevenlabs", "say", "console"], help="override TTS_PROVIDER")
     p.add_argument("--stt", choices=["auto", "whisper", "google"], help="override STT_PROVIDER")
     p.add_argument("--wake", choices=["auto", "wakeword", "name", "push_to_talk"], help="override WAKE_MODE")
@@ -190,6 +217,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("text", nargs="+")
     s.set_defaults(func=cmd_say)
     sub.add_parser("listen", help="record one utterance and print the transcript").set_defaults(func=cmd_listen)
+    r = sub.add_parser("rate", help="show the complexity score and tier a request would get")
+    r.add_argument("text", nargs="*", help="the request (or pipe lines on stdin)")
+    r.set_defaults(func=cmd_rate)
     d = sub.add_parser("doctor", help="check the setup")
     d.add_argument("--online", action="store_true", help="also call the LLM and ElevenLabs APIs")
     d.set_defaults(func=cmd_doctor)

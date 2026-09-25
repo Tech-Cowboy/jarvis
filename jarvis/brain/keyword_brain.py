@@ -25,6 +25,17 @@ class Rule:
     build: Callable[[re.Match], tuple[str, dict]]
 
 
+_TIME_SENSITIVE = re.compile(r"\b(weather|forecast|news|price|prices|cost|stock|score|scores|today|tonight|tomorrow|now|"
+                             r"latest|current|currently|open (?:right )?now|hours|traffic|schedule)\b", re.I)
+
+
+def _lookup(topic: str) -> tuple[str, dict]:
+    """'who is X' -> Wikipedia; anything time-sensitive ('what's the weather today') -> web search."""
+    if _TIME_SENSITIVE.search(topic):
+        return "web_search", {"query": topic}
+    return "wikipedia_summary", {"topic": topic}
+
+
 def _rules() -> list[Rule]:
     r = re.compile
     return [
@@ -49,7 +60,7 @@ def _rules() -> list[Rule]:
         Rule(r(r"^(?:what(?:'s|\s+is)?\s+)?(?:the\s+)?(?:current\s+)?(?:time|date|day)(?:\s+(?:is it|today|now|is it today|is today))?[.!?]*$", re.I),
              lambda m: ("current_datetime", {})),
         Rule(r(r"^(?:wikipedia|wiki|who is|who was|what is|what's|what are|tell me about|define)\s+(?:a |an |the )?(?P<t>.+?)[.!?]*$", re.I),
-             lambda m: ("wikipedia_summary", {"topic": m["t"]})),
+             lambda m: _lookup(m["t"])),
         Rule(r(r"^(?:remember|note|write down|take a note)\s+(?:that\s+)?(?P<n>.+?)[.!?]*$", re.I),
              lambda m: ("remember", {"note": m["n"]})),
         Rule(r(r"^(?:what did i (?:ask you to |tell you to )?remember|recall|read my notes|my notes|list notes)[.!?]*$", re.I),
@@ -73,13 +84,50 @@ HELP = ("I'm running in classic keyword mode because no language model is config
         "check the battery, take a screenshot, or read the news. "
         "Add an Anthropic, OpenAI or Ollama model in the dot env file for open-ended questions.")
 
+MISS_TEXT = "I didn't catch a command I know. Say help to hear what I can do."
+
+# Small talk the keyword brain answers itself (no tool, no model).
+SMALL_TALK: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^(?:hello|hi|hey|good (?:morning|afternoon|evening))\b.*$", re.I), "Hello. What can I do for you?"),
+    (re.compile(r"^(?:thanks|thank you|cheers|appreciate it)\b.*$", re.I), "You're welcome."),
+    (re.compile(r"^(?:ok|okay|alright|yes|yep|no|nope|never ?mind|cancel)\b.*$", re.I), "Alright."),
+    (re.compile(r"^(?:help|what can you do)\b.*$", re.I), HELP),
+]
+
+_RULES = _rules()
+
+
+def strip_name(text: str, assistant_name: str = "Jarvis") -> str:
+    text = text.strip()
+    text = re.sub(rf"^(?:hey|ok|okay|hi)?[,\s]*{re.escape(assistant_name)}[,.!\s]*", "", text, flags=re.I)
+    return text.strip()
+
+
+def find_rule(text: str, available: set[str] | None = None) -> tuple[str, dict] | None:
+    """(tool name, arguments) for the first matching keyword rule, or None. Used by the complexity rater too."""
+    for rule in _RULES:
+        m = rule.pattern.match(text)
+        if not m:
+            continue
+        name, args = rule.build(m)
+        if available is not None and name not in available:
+            continue
+        return name, args
+    return None
+
+
+def find_small_talk(text: str) -> str | None:
+    for pattern, reply in SMALL_TALK:
+        if pattern.match(text):
+            return reply
+    return None
+
 
 class KeywordBrain(LLM):
     name = "keyword"
 
     def __init__(self, assistant_name: str = "Jarvis"):
         self.assistant_name = assistant_name
-        self._rules = _rules()
         self._counter = 0
 
     def complete(self, system: str, messages: list[Message], tools: list[ToolSpec]) -> LLMResponse:
@@ -97,25 +145,17 @@ class KeywordBrain(LLM):
         if last.role != "user":
             return LLMResponse(text=HELP)
 
-        text = _strip_name(last.content, self.assistant_name)
-        available = {t.name for t in tools}
-        for rule in self._rules:
-            m = rule.pattern.match(text)
-            if not m:
-                continue
-            name, args = rule.build(m)
-            if name not in available:
-                continue
+        text = strip_name(last.content, self.assistant_name)
+        hit = find_rule(text, {t.name for t in tools})
+        if hit:
+            name, args = hit
             self._counter += 1
             return LLMResponse(tool_calls=[ToolCall(id=f"kw_{self._counter}", name=name, arguments=args)])
-        if re.search(r"\b(hello|hi|hey|good (morning|afternoon|evening))\b", text, re.I):
-            return LLMResponse(text="Hello. What can I do for you?")
-        if re.search(r"\b(help|what can you do)\b", text, re.I):
-            return LLMResponse(text=HELP)
-        return LLMResponse(text="I didn't catch a command I know. Say help to hear what I can do.")
+        reply = find_small_talk(text)
+        if reply:
+            return LLMResponse(text=reply)
+        return LLMResponse(text=MISS_TEXT, miss=True)
 
 
-def _strip_name(text: str, assistant_name: str) -> str:
-    text = text.strip()
-    text = re.sub(rf"^(?:hey|ok|okay|hi)?[,\s]*{re.escape(assistant_name)}[,.!\s]*", "", text, flags=re.I)
-    return text.strip()
+# kept for callers that imported the private name
+_strip_name = strip_name
