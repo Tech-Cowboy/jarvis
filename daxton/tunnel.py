@@ -36,7 +36,6 @@ CLOUDFLARED_DIR = Path.home() / ".cloudflared"
 CANDIDATE_BINARIES = ("/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared")
 HOSTNAME_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 SERVICE_LABEL = "ai.daxton.dashboard"
-QUICK_LABEL = "ai.daxton.tunnel"
 QUICK_URL_RE = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
 
 
@@ -78,9 +77,15 @@ def parse_tunnel_list(output: str) -> list[dict]:
     return [t for t in data if isinstance(t, dict)] if isinstance(data, list) else []
 
 
+def _deleted(t: dict) -> bool:
+    """cloudflared reports Go's zero time ("0001-01-01T00:00:00Z") for a tunnel that is not deleted."""
+    stamp = str(t.get("deleted_at") or "")
+    return bool(stamp) and not stamp.startswith("0001-")
+
+
 def find_tunnel(tunnels: list[dict], name: str) -> dict | None:
     for t in tunnels:
-        if t.get("name") == name and not t.get("deleted_at"):
+        if t.get("name") == name and not _deleted(t):
             return t
     return None
 
@@ -210,26 +215,60 @@ def route_dns(cloudflared: str, name: str, hostname: str) -> None:
         raise TunnelError(f"could not route DNS: {out[:400]}")
 
 
+TUNNEL_LABEL = "ai.daxton.tunnel"  # one launch agent runs either the named tunnel or a quick tunnel
+
+
+def tunnel_plist_path() -> Path:
+    return Path.home() / "Library/LaunchAgents" / f"{TUNNEL_LABEL}.plist"
+
+
+def tunnel_service_args() -> list[str] | None:
+    """The command the tunnel agent runs, or None when it is not installed."""
+    plist = tunnel_plist_path()
+    if not plist.is_file():
+        return None
+    try:
+        return list(plistlib.loads(plist.read_bytes()).get("ProgramArguments", []))
+    except Exception:
+        return None
+
+
+def tunnel_service_mode() -> str | None:
+    """'named' (cloudflared tunnel run <name>), 'quick' (cloudflared tunnel --url ...) or None."""
+    args = tunnel_service_args()
+    if not args:
+        return None
+    return "quick" if "--url" in args else "named"
+
+
+def install_tunnel_service(settings, args: list[str], what: str) -> Path:
+    """Write and load the ai.daxton.tunnel launch agent (replacing whatever it ran before)."""
+    if platform.system() != "Darwin":
+        raise TunnelError("the tunnel service uses macOS launchd; on Linux run cloudflared under systemd")
+    log_path = quick_log_path(settings)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    plist = tunnel_plist_path()
+    plist.parent.mkdir(parents=True, exist_ok=True)
+    plist.write_bytes(launchd_plist(TUNNEL_LABEL, args, Path.home(), log_path))
+    _launchctl_load(plist)
+    print(f"Installed {TUNNEL_LABEL} ({what}): runs at login, restarts if it drops. Log: {log_path}")
+    return plist
+
+
+def remove_cloudflared_own_service(cloudflared: str) -> None:
+    """`cloudflared service install` on macOS writes an agent that runs bare `cloudflared`, which exits with
+    'use cloudflared tunnel run' against a config file; we run the tunnel under our own agent instead."""
+    plist = Path.home() / "Library/LaunchAgents/com.cloudflare.cloudflared.plist"
+    if plist.is_file():
+        subprocess.run([cloudflared, "service", "uninstall"], capture_output=True, text=True)
+        if plist.is_file():
+            _launchctl_unload(plist)
+            plist.unlink()
+        print("Removed cloudflared's own launch agent (it does not run a configured tunnel).")
+
+
 def cloudflared_service_installed() -> bool:
-    if platform.system() == "Darwin":
-        return (Path.home() / "Library/LaunchAgents/com.cloudflare.cloudflared.plist").is_file() or \
-            Path("/Library/LaunchDaemons/com.cloudflare.cloudflared.plist").is_file()
-    return Path("/etc/systemd/system/cloudflared.service").is_file()
-
-
-def install_cloudflared_service(cloudflared: str) -> None:
-    """A launch agent for the current user on macOS (no sudo); systemd needs root elsewhere."""
-    if cloudflared_service_installed():
-        print("cloudflared service already installed.")
-        return
-    if platform.system() == "Darwin":
-        r = _run([cloudflared, "service", "install"], check=False, capture=True)
-        out = ((r.stdout or "") + (r.stderr or "")).strip()
-        if r.returncode != 0:
-            raise TunnelError(f"cloudflared service install failed: {out[:400]}")
-        print("cloudflared installed as a launch agent (runs at login).")
-    else:
-        print("Run `sudo cloudflared service install` to start the tunnel at boot.")
+    return tunnel_service_mode() == "named"
 
 
 def cloudflared_running() -> bool:
@@ -268,15 +307,16 @@ def setup(settings, hostname: str, port: int | None = None, name: str | None = N
     path = write_config(config_yaml(tunnel_id, creds, hostname, port))
     print(f"Wrote {path}.")
     route_dns(cloudflared, name, hostname)
+    remove_cloudflared_own_service(cloudflared)
     if not no_service:
-        install_cloudflared_service(cloudflared)
+        install_tunnel_service(settings, [cloudflared, "--no-autoupdate", "tunnel", "run", name], f"tunnel '{name}'")
 
     print("\nDone. Next:")
     print(f"  * add PUBLIC_HOSTNAME={hostname} to .env (the dashboard uses it to check WebSocket origins)")
     print("  * start the dashboard: daxton ui --no-browser   (or install it as a service: daxton service install)")
     print(f"  * open https://{hostname} from your phone; the login page asks for DASHBOARD_PASSWORD")
-    if no_service or not cloudflared_service_installed():
-        print(f"  * run the tunnel: daxton tunnel run   (or install it: cloudflared service install)")
+    if no_service:
+        print("  * run the tunnel: daxton tunnel run   (or install it: daxton tunnel setup without --no-service)")
     print()
     print(access_instructions(hostname))
     return 0
@@ -303,9 +343,9 @@ def status(settings) -> int:
         ("config", str(config) if config.is_file() else "missing"),
         ("hostname", settings.public_hostname or "PUBLIC_HOSTNAME not set"),
         ("password", "set" if settings.dashboard_password else "DASHBOARD_PASSWORD not set: remote access is refused"),
-        ("tunnel service", "installed" if cloudflared_service_installed() else "not installed"),
-        ("quick tunnel", ("service installed" if quick_service_installed() else "not installed")
-         + (f", address {quick_url(settings)}" if quick_url(settings) else "")),
+        ("tunnel service", {"named": f"installed (tunnel '{settings.tunnel_name}')", "quick": "installed (quick tunnel)",
+                            None: "not installed"}[tunnel_service_mode()]
+         + (f", address {quick_url(settings)}" if tunnel_service_mode() == "quick" and quick_url(settings) else "")),
         ("tunnel process", "running" if cloudflared_running() else "not running"),
         ("dashboard service", service_status_text()),
     ]
@@ -359,10 +399,6 @@ def portal_url(settings) -> str | None:
     return quick_url(settings)
 
 
-def quick_plist_path() -> Path:
-    return Path.home() / "Library/LaunchAgents" / f"{QUICK_LABEL}.plist"
-
-
 def quick(settings, port: int | None = None, service: bool = False, wait: float = 45.0) -> int:
     """A quick tunnel: https://<random>.trycloudflare.com -> the dashboard. No account, no domain, no DNS.
 
@@ -376,21 +412,16 @@ def quick(settings, port: int | None = None, service: bool = False, wait: float 
     cloudflared = find_cloudflared() or install_cloudflared()
     args = [cloudflared, "tunnel", "--no-autoupdate", "--url", f"http://127.0.0.1:{port}"]
     if service:
-        if platform.system() != "Darwin":
-            raise TunnelError("--service uses macOS launchd; on Linux run the tunnel under systemd")
         log_path = quick_log_path(settings)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        plist = quick_plist_path()
-        plist.parent.mkdir(parents=True, exist_ok=True)
-        plist.write_bytes(launchd_plist(QUICK_LABEL, args, Path.home(), log_path))
-        _launchctl_load(plist)
-        print(f"Installed {QUICK_LABEL}: the quick tunnel runs at login and restarts if it drops. Log: {log_path}")
+        started_marker = log_path.stat().st_size if log_path.is_file() else 0
+        install_tunnel_service(settings, args, "quick tunnel")
         print("Waiting for the address ...")
         import time
 
         started = time.time()
         while time.time() - started < wait:
-            url = quick_url_from_log(log_path.read_text(encoding="utf-8", errors="replace")[-20000:]) if log_path.is_file() else None
+            fresh = log_path.read_text(encoding="utf-8", errors="replace")[started_marker:] if log_path.is_file() else ""
+            url = quick_url_from_log(fresh)
             if url:
                 print(f"\nPortal: {url}\n(the address changes when the tunnel restarts; `daxton tunnel status` shows the current one, "
                       "and the dashboard's Systems panel shows it with a QR code)")
@@ -422,11 +453,11 @@ def quick(settings, port: int | None = None, service: bool = False, wait: float 
 
 
 def quick_service_installed() -> bool:
-    return quick_plist_path().is_file()
+    return tunnel_service_mode() == "quick"
 
 
-def quick_service_uninstall() -> None:
-    plist = quick_plist_path()
+def tunnel_service_uninstall() -> None:
+    plist = tunnel_plist_path()
     if plist.is_file():
         _launchctl_unload(plist)
         plist.unlink()
@@ -480,9 +511,9 @@ def service_install(settings, host: str | None = None, port: int | None = None) 
 
 def service_uninstall(settings) -> int:
     plist = service_plist_path()
-    if quick_service_installed():
-        quick_service_uninstall()
-        print(f"Removed {QUICK_LABEL} (the quick tunnel).")
+    if tunnel_service_mode():
+        tunnel_service_uninstall()
+        print(f"Removed {TUNNEL_LABEL} (the tunnel).")
     if not plist.is_file():
         print("Dashboard service not installed.")
         return 0

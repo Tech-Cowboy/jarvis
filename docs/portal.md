@@ -1,9 +1,24 @@
 # The portal: reach Daxton from anywhere
 
-The dashboard (`daxton ui`) normally lives on the Mac at `http://127.0.0.1:8765`. The portal publishes it on a
-hostname you own, say `https://daxton.example.com`, so a phone or a laptop anywhere can open the same HUD, talk to
-Daxton through its own microphone, and hear the reply in the Daxton voice. The Mac keeps doing all the work (wake
-word, Whisper, the brain, the skills, the voice); the portal is a window onto it.
+The dashboard (`daxton ui`) normally lives on the Mac at `http://127.0.0.1:8765`. The portal publishes it on the
+internet, at a random `trycloudflare.com` address in a minute or at a hostname you own, say
+`https://daxton.example.com`, so a phone or a laptop anywhere can open the same HUD, talk to Daxton through its own
+microphone, and hear the reply in the Daxton voice. The Mac keeps doing all the work (wake word, Whisper, the brain,
+the skills, the voice); the portal is a window onto it.
+
+## The one-minute version (no domain)
+
+```bash
+echo 'DASHBOARD_PASSWORD=correct horse battery staple' >> .env   # the lock; nothing is published without it
+daxton service install          # `daxton ui` runs at login and restarts if it stops
+daxton tunnel quick --service   # a Cloudflare quick tunnel; prints https://<four-words>.trycloudflare.com
+```
+
+That address is yours until the tunnel restarts (a reboot, a network drop), when Cloudflare hands out a new one:
+`daxton tunnel status` prints the current address, and the HUD's Systems panel shows it with a **QR** button so you
+can point a phone at the Mac's screen. Nothing else changes: the same login, the same voice both ways. What you do
+not get is Cloudflare Access in front of the login page, so the dashboard password is the only lock; use a long one.
+The rest of this document is the permanent version on your own domain.
 
 Four pieces make it safe:
 
@@ -21,7 +36,10 @@ Four pieces make it safe:
 ## Before you start
 
 - A domain whose DNS is on Cloudflare (a free Cloudflare account, the domain's nameservers pointed at Cloudflare).
-  Any domain you already have works; you do not need to move the website, only the DNS.
+  Any domain you already have works; you do not need to move the website, only the DNS. `dig +short NS example.com`
+  tells you where a domain's DNS lives today: `*.ns.cloudflare.com` means you are ready; `*.domaincontrol.com`
+  (GoDaddy) or another registrar's servers means the DNS has to move first, see "Moving a domain to Cloudflare"
+  at the end.
 - Daxton installed and working on the Mac (`daxton doctor` clean, `daxton ui` shows the HUD locally).
 - Homebrew (the setup installs `cloudflared` with it).
 
@@ -52,10 +70,18 @@ What it does, printing every command before running it:
 3. `cloudflared tunnel create daxton` (or reuses an existing tunnel of that name);
 4. writes `~/.cloudflared/config.yml`: the hostname to `http://127.0.0.1:8765`, everything else 404;
 5. `cloudflared tunnel route dns daxton daxton.example.com`: the DNS record (a proxied CNAME to the tunnel);
-6. `cloudflared service install`: a launch agent so the tunnel starts at login and restarts if it drops.
+6. a launch agent (`ai.daxton.tunnel`, running `cloudflared tunnel run daxton`) so the tunnel starts at login and
+   restarts if it drops. The same agent name is used for a quick tunnel, so switching from one to the other
+   replaces it; `cloudflared service install` is not used because on macOS it writes an agent that runs bare
+   `cloudflared`, which exits at once against a config file.
 
 `daxton tunnel status` shows the state of each piece; `daxton tunnel run` runs the tunnel in the foreground if you
-would rather watch it the first time. The setup refuses to run without `DASHBOARD_PASSWORD`.
+would rather watch it the first time. The setup refuses to run without `DASHBOARD_PASSWORD`, and it is safe to run
+again (it reuses the tunnel, backs up the previous config and reinstalls the agent).
+
+A domain registered minutes ago needs two more things to happen on their own before the address answers: the
+registry has to publish the delegation (`dig +short NS daxton.example.com` empty until then) and Cloudflare has to
+issue the edge certificate (a TLS handshake failure until then). Both usually take minutes, occasionally an hour.
 
 ## Step 3: keep the assistant running
 
@@ -124,7 +150,10 @@ phone browser ──── wss ────► Cloudflare ──── tunnel �
   the session started without a microphone.
 - `daxton/tts/macos_say.py`: when something is listening, the macOS voice is rendered to PCM (`say -o`) and played
   through the same player as ElevenLabs, so the free voice reaches the portal too.
-- `daxton/tunnel.py`: `daxton tunnel` and `daxton service`.
+- `daxton/tunnel.py`: `daxton tunnel` (`setup`, `run`, `quick`, `status`) and `daxton service`; the HUD reads the
+  current portal address from the tunnel log and serves it as a QR code at `/portal.svg`.
+- `daxton/cli.py`: the voice loop runs on a worker thread under a watchdog, so a microphone that cannot open
+  (a permission prompt waiting on the Mac) never takes the portal down.
 
 The audio path costs nothing extra: ElevenLabs is called once per reply as before; the same PCM is played on the
 Mac and forwarded to the browsers that asked for it.
@@ -145,6 +174,24 @@ Mac and forwarded to the browsers that asked for it.
   Treat the password accordingly.
 - No credentials are stored by the portal. The `.env` file stays on the Mac and is git-ignored.
 
+## Moving a domain to Cloudflare
+
+Cloudflare Tunnel can only publish a hostname whose zone is on Cloudflare DNS (a free plan is enough; subdomain-only
+delegation is an Enterprise feature). Moving a domain you use for a website or email is safe when done carefully,
+and it is not something to do in a hurry:
+
+1. In the Cloudflare dashboard, **Add a site**, free plan. Cloudflare scans and imports the domain's current records.
+2. Compare the import against the registrar's DNS page **record by record**: MX and the mail provider's
+   verification and DKIM records, SPF and DMARC TXT records, the website's A or CNAME records, redirect hosts,
+   any CNAMEs a mail-sending service asked you to add. The scan misses some of these; add what it missed by hand.
+   Set records that only need DNS (mail, verification) to "DNS only", not proxied.
+3. At the registrar, replace the nameservers with the two Cloudflare gives you. Propagation takes minutes to hours;
+   the old servers keep answering meanwhile, so nothing breaks if step 2 was complete.
+4. When Cloudflare shows the zone as active, `daxton tunnel setup daxton.example.com`.
+
+The alternative that avoids touching a business domain is a new domain registered on Cloudflare (Cloudflare Registrar
+sells them at cost), which is on Cloudflare DNS from the first minute.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -157,3 +204,5 @@ Mac and forwarded to the browsers that asked for it.
 | The Mac transcribes its own reply | Turn `Mac speakers` off while you are remote, or `Mute` the Mac's microphone. |
 | Logged out on every visit | Cookies blocked for the site, or the clock on the Mac is off. |
 | Slow first answer from the portal in `--no-voice` mode | Whisper loads on the first remote utterance (a few seconds, once). |
+| The service log says the microphone has not opened | First run under launchd: macOS is asking whether Python may use the microphone. Click Allow on the Mac; the voice loop joins in by itself. Until then typed requests and browser voice work. |
+| The quick tunnel address changed | Cloudflare gives a new one on every restart. `daxton tunnel status` shows it; the HUD's Portal row has a QR code. For a stable address use your own domain (`daxton tunnel setup`). |

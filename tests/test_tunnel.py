@@ -26,9 +26,10 @@ def test_config_yaml_shape():
 
 
 def test_parse_tunnel_outputs():
-    listing = '[{"id": "abc", "name": "daxton", "created_at": "x"}, {"id": "old", "name": "daxton", "deleted_at": "y"}]'
+    listing = ('[{"id": "old", "name": "daxton", "deleted_at": "2026-01-01T00:00:00Z"}, '
+               '{"id": "abc", "name": "daxton", "created_at": "x", "deleted_at": "0001-01-01T00:00:00Z"}]')
     tunnels = tunnel.parse_tunnel_list(listing)
-    assert tunnel.find_tunnel(tunnels, "daxton")["id"] == "abc"
+    assert tunnel.find_tunnel(tunnels, "daxton")["id"] == "abc"  # Go's zero time means "not deleted"
     assert tunnel.find_tunnel(tunnels, "other") is None
     assert tunnel.parse_tunnel_list("") == [] and tunnel.parse_tunnel_list("not json") == []
     assert tunnel.parse_created_tunnel("Tunnel credentials written to /Users/t/.cloudflared/"
@@ -107,3 +108,15 @@ def test_quick_tunnel_url_parsing_and_lookup(tmp_path):
 def test_quick_refuses_without_password(tmp_path):
     with pytest.raises(tunnel.TunnelError, match="DASHBOARD_PASSWORD"):
         tunnel.quick(Settings(data_dir=tmp_path))
+
+
+def test_tunnel_service_mode_reads_the_agent(tmp_path, monkeypatch):
+    plist = tmp_path / "ai.daxton.tunnel.plist"
+    monkeypatch.setattr(tunnel, "tunnel_plist_path", lambda: plist)
+    assert tunnel.tunnel_service_mode() is None and not tunnel.cloudflared_service_installed()
+    plist.write_bytes(tunnel.launchd_plist("ai.daxton.tunnel", ["/opt/homebrew/bin/cloudflared", "--no-autoupdate", "tunnel",
+                                                               "--url", "http://127.0.0.1:8765"], tmp_path, tmp_path / "t.log"))
+    assert tunnel.tunnel_service_mode() == "quick" and tunnel.quick_service_installed()
+    plist.write_bytes(tunnel.launchd_plist("ai.daxton.tunnel", ["/opt/homebrew/bin/cloudflared", "--no-autoupdate", "tunnel",
+                                                               "run", "daxton"], tmp_path, tmp_path / "t.log"))
+    assert tunnel.tunnel_service_mode() == "named" and tunnel.cloudflared_service_installed()

@@ -92,32 +92,37 @@ carries voice both ways for the portal: binary PCM frames in from a browser micr
 
 ## The portal: Daxton from anywhere
 
-The dashboard can be published on your own domain so you can talk to Daxton from your phone or any browser, with the
+The dashboard can be published on the internet so you can talk to Daxton from your phone or any browser, with the
 Mac at home doing the work. Full walkthrough in [`docs/portal.md`](docs/portal.md); the short version:
 
 ```bash
 # 1. a login for the dashboard (12+ characters; without it, only the Mac itself is ever served)
 echo 'DASHBOARD_PASSWORD=correct horse battery staple' >> .env
-echo 'PUBLIC_HOSTNAME=daxton.example.com' >> .env
 
-# 2. a Cloudflare Tunnel from the Mac to that hostname (the domain must be on Cloudflare DNS)
-daxton tunnel setup daxton.example.com     # installs cloudflared, logs in, creates the tunnel, routes DNS,
-                                           # writes ~/.cloudflared/config.yml, installs it as a login service
-# 3. keep the assistant running
-daxton service install                     # `daxton ui` at login, restarted if it stops (macOS launchd)
+# 2. keep the assistant running (macOS launchd: at login, restarted if it stops)
+daxton service install
+
+# 3a. no domain needed: a Cloudflare quick tunnel, a random https://<words>.trycloudflare.com address
+daxton tunnel quick --service        # prints the address; `daxton tunnel status` and the HUD's Portal row (with a
+                                     # QR code for your phone) show the current one; it changes when the tunnel restarts
+
+# 3b. your own domain (its DNS must be on Cloudflare): a named tunnel, a stable address, Cloudflare Access in front
+echo 'PUBLIC_HOSTNAME=daxton.example.com' >> .env
+daxton tunnel setup daxton.example.com
 ```
 
-Then open `https://daxton.example.com` on your phone: Cloudflare Access (set up in step 4 of the walkthrough) asks
-who you are, Daxton asks for its password, and the HUD appears. Press **Talk** and speak into the phone: the audio
-streams to the Mac, Whisper transcribes it there, the brain answers, and the reply plays in the browser in the Daxton
-voice (and on the Mac too, unless you switch `Mac speakers` off). Everything the Mac hears through its own microphone
-shows up on the phone as well, so the portal is a window onto the same assistant, not a second one.
+Then open the address on your phone: the login page asks for the dashboard password (and, with 3b, Cloudflare
+Access asks who you are first), and the HUD appears. Press **Talk** and speak into the phone: the audio streams to the
+Mac, Whisper transcribes it there, the brain answers, and the reply plays in the browser in the Daxton voice (and on
+the Mac too, unless you switch `Mac speakers` off). Everything the Mac hears through its own microphone shows up on
+the phone as well, so the portal is a window onto the same assistant, not a second one.
 
-Security, in one paragraph: no port is opened on the Mac (cloudflared dials out); the hostname is behind Cloudflare
-Access, so only your email gets to the login page; the dashboard's own password is the second lock, sessions are
-signed HttpOnly cookies that die when you change the password, failed logins are throttled, cross-site requests and
-sockets are refused, and without `DASHBOARD_PASSWORD` the server refuses anything that did not come from the Mac
-itself, whatever the tunnel forwards. Browser microphones need HTTPS, which the tunnel provides.
+Security, in one paragraph: no port is opened on the Mac (cloudflared dials out); the dashboard's own password is
+the lock, sessions are signed HttpOnly cookies that die when you change the password, failed logins are throttled,
+cross-site requests and sockets are refused, and without `DASHBOARD_PASSWORD` the server refuses anything that did
+not come from the Mac itself, whatever a tunnel forwards. With your own domain, Cloudflare Access adds a second lock
+in front and keeps scanners away from the login page altogether. Browser microphones need HTTPS, which either tunnel
+provides.
 
 ## Free by default, smarter when it matters
 
@@ -158,7 +163,8 @@ keyword rules; without it, anything the rules cannot parse goes straight to the 
 | `daxton say "Good evening, sir."` | Test the configured voice. |
 | `daxton listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
 | `daxton ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
-| `daxton tunnel setup <host>` | Publish the dashboard at `https://<host>` through a Cloudflare Tunnel (`run` for a foreground test, `status` to check). |
+| `daxton tunnel quick [--service]` | Publish the dashboard now at a random `https://<words>.trycloudflare.com` address (no domain, no account). |
+| `daxton tunnel setup <host>` | Publish it at `https://<host>` on your own Cloudflare-hosted domain (`run` for a foreground test, `status` to check). |
 | `daxton service install` | Keep `daxton ui` running at login (macOS launchd agent); `uninstall`, `status`. |
 | `daxton rate "..."` | Show the complexity score, the reasons, and which tier and model would take the request. |
 | `daxton doctor [--online]` | Check every stage; `--online` also calls the LLM and ElevenLabs APIs. |
@@ -307,7 +313,9 @@ schema.
   character quota; `TTS_CACHE` keeps repeated phrases free.
 - **No LLM key**: everything still works in keyword mode (`daxton --llm keyword`), which is the classic experience.
 - **The portal shows "Local only"**: `DASHBOARD_PASSWORD` is not set in the `.env` the running `daxton ui` loaded;
-  set it and restart. **Talk does nothing on the phone**: the page needs HTTPS for the microphone (the tunnel gives
+  set it and restart. **The service says the microphone has not opened**: the first run as a background service
+  makes macOS ask whether Python may use the microphone; click Allow (System Settings > Privacy & Security >
+  Microphone). The dashboard and the portal keep working in text and browser-voice mode while it waits. **Talk does nothing on the phone**: the page needs HTTPS for the microphone (the tunnel gives
   it; plain `http://<lan-ip>` does not) and the first tap must be yours (browsers block audio until you interact).
   **No sound on the phone**: tap the "enable audio" prompt or the `Audio` button once. `daxton tunnel status` and
   `daxton doctor` show what is missing.
