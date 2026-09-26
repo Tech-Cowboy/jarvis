@@ -86,7 +86,7 @@ daxton convai status       key, agent, llm, voice, tools, local mode, shell, Cla
 | `ELEVENLABS_API_KEY` | | required |
 | `CONVAI_LLM` | `claude-sonnet-5` | any model ElevenLabs lists (`claude-haiku-4-5` is cheaper and quicker) |
 | `CONVAI_VOICE_ID` | `ELEVENLABS_VOICE_ID` | |
-| `CONVAI_TTS_MODEL` | `eleven_flash_v2_5` | `eleven_turbo_v2_5` is a touch richer |
+| `CONVAI_TTS_MODEL` | `eleven_flash_v2` | `eleven_turbo_v2` is a touch richer; English agents must use a v2 turbo or flash model |
 | `CONVAI_LOCAL` | `true` | the name opens a conversation at the Mac |
 | `CONVAI_BARGE_IN` | `false` | see above |
 | `CONVAI_SILENCE_END` | `45` | seconds of silence that end a session |

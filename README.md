@@ -277,7 +277,7 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 | `MIN_SPEECH_RMS`, `SILENCE_SECONDS`, `MAX_UTTERANCE_SECONDS`, `LISTEN_TIMEOUT_SECONDS` | `0.010, 1.2, 15, 8` | Voice activity tuning. The mic calibrates to room noise at startup. |
 | `ASSISTANT_NAME`, `PRODUCT_NAME`, `USER_NAME`, `HONORIFIC` | `Daxton`, `Daxton AI`, empty, `sir` | Persona and branding. |
 | `HISTORY_TURNS`, `MAX_TOOL_ROUNDS`, `MAX_TOKENS` | `8, 6, 400` | Conversation memory, tool chaining depth, reply length. |
-| `CONVAI_LLM`, `CONVAI_VOICE_ID`, `CONVAI_TTS_MODEL` | `claude-sonnet-5`, the ElevenLabs voice, `eleven_flash_v2_5` | The conversation agent's brain and voice. |
+| `CONVAI_LLM`, `CONVAI_VOICE_ID`, `CONVAI_TTS_MODEL` | `claude-sonnet-5`, the ElevenLabs voice, `eleven_flash_v2` | The conversation agent's brain and voice. |
 | `CONVAI_LOCAL`, `CONVAI_BARGE_IN`, `CONVAI_SILENCE_END`, `CONVAI_MAX_MINUTES` | `true`, `false`, `45`, `30` | Whether the name opens a conversation at the Mac, whether the Mac mic stays open while Daxton talks, and when a conversation ends by itself. |
 | `DAXTON_SHELL`, `CLAUDE_CODE_BIN`, `TASKS_DIR`, `TASK_TIMEOUT_MINUTES` | `true`, on PATH, `~/Documents/Claude/Projects/daxton-tasks`, `30` | The work skills: shell on or off, where Claude Code is, where delegated tasks run. |
 | `DASHBOARD_PASSWORD` | empty | Login for the dashboard. Empty: only the Mac's own browser is served. Set: every page, API call and socket needs the session cookie. Changing it signs everyone out. |

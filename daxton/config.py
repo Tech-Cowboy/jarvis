@@ -135,7 +135,7 @@ class Settings:
     convai_agent_id: str = ""  # set by `daxton convai setup` (kept in ~/.daxton/convai.json) or CONVAI_AGENT_ID
     convai_llm: str = "claude-sonnet-5"  # the model ElevenLabs runs for the agent
     convai_voice_id: str = ""  # defaults to ELEVENLABS_VOICE_ID
-    convai_tts_model: str = "eleven_flash_v2_5"
+    convai_tts_model: str = "eleven_flash_v2"  # English agents must use turbo or flash v2
     convai_local: bool = True  # saying the name at the Mac starts a conversation session on its own mic and speakers
     convai_barge_in: bool = False  # Mac mic stays muted while Daxton speaks (no echo cancellation without a headset)
     convai_silence_end: int = 45  # seconds of silence before a session ends by itself
@@ -374,7 +374,7 @@ def load_settings() -> Settings:
         convai_agent_id=e("CONVAI_AGENT_ID", "").strip(),
         convai_llm=e("CONVAI_LLM", "claude-sonnet-5").strip(),
         convai_voice_id=e("CONVAI_VOICE_ID", "").strip(),
-        convai_tts_model=e("CONVAI_TTS_MODEL", "eleven_flash_v2_5").strip(),
+        convai_tts_model=e("CONVAI_TTS_MODEL", "eleven_flash_v2").strip(),
         convai_local=_bool(e("CONVAI_LOCAL"), True),
         convai_barge_in=_bool(e("CONVAI_BARGE_IN"), False),
         convai_silence_end=_int(e("CONVAI_SILENCE_END"), 45),
