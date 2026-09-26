@@ -124,6 +124,44 @@ not come from the Mac itself, whatever a tunnel forwards. With your own domain, 
 in front and keeps scanners away from the login page altogether. Browser microphones need HTTPS, which either tunnel
 provides.
 
+## Conversations: talk to Daxton like a person
+
+`daxton convai setup` turns Daxton into a real conversational agent on your ElevenLabs account (the same
+Conversational AI that powers phone agents): you talk, he answers within a second in the ElevenLabs voice, you can
+cut in mid-sentence, and there is no wake word once a conversation is open. Claude is the brain (any model
+ElevenLabs offers, `CONVAI_LLM`, default `claude-sonnet-5`). Every skill Daxton has is registered with the agent as a
+*client tool*, so when he decides to open an app, search the web, read a file, run a command or hand a job to
+Claude Code, the call comes back to the Mac (or to the dashboard page holding the conversation) and runs there;
+nothing about the Mac is exposed to the internet for it.
+
+```bash
+echo 'ELEVENLABS_API_KEY=...' >> .env    # Profile > API keys on elevenlabs.io (never paste keys anywhere else)
+daxton convai setup                      # creates or updates the agent and its tools from the current skills
+daxton convai talk                       # a conversation on the Mac's mic and speakers, right now
+```
+
+After that, saying the name at the Mac (`daxton` or `daxton ui`) opens a conversation instead of a single exchange,
+and it ends when you say goodbye or go quiet for `CONVAI_SILENCE_END` seconds (45). In the portal, the **Converse**
+button does the same in the browser (phone included): the ElevenLabs SDK runs in the page and the tools run on the
+Mac. Conversations are logged in the HUD and saved under `~/.daxton/conversations/`, and the last one is handed to
+the next as context, along with your notes and any background tasks.
+
+Without a headset a Mac hears its own speakers, so at the Mac the microphone is muted while Daxton talks
+(`CONVAI_BARGE_IN=false`); in the browser, echo cancellation lets you interrupt freely.
+
+### Real work
+
+Beyond the original skills (apps, sites, search, timers, notes, screenshots), Daxton can now:
+
+- **read_file, write_file, list_files** under your home folder (never `.env`, keys or keychains);
+- **run_command** and **run_python**, with a deny list for the obviously destructive (`sudo`, `rm -rf /`, disk
+  tools, piping the internet into a shell) and a 60 s limit; `DAXTON_SHELL=false` switches them off;
+- **fetch_page** to read a web page properly, so "what does this article say" gets a real answer;
+- **delegate_task**: "Daxton, build me a script that renames my photos by date" hands the brief to
+  [Claude Code](https://claude.com/claude-code) running headless on the Mac in a task folder
+  (`TASKS_DIR`, default `~/Documents/Claude/Projects/daxton-tasks/<date>-<slug>/`), keeps the conversation going,
+  and tells you when it is done; **task_status** checks on it. Needs Claude Code installed and signed in.
+
 ## Free by default, smarter when it matters
 
 Every request is scored for complexity before any model is called (a deterministic rater, microseconds, no API), and
@@ -163,6 +201,7 @@ keyword rules; without it, anything the rules cannot parse goes straight to the 
 | `daxton say "Good evening, sir."` | Test the configured voice. |
 | `daxton listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
 | `daxton ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
+| `daxton convai setup` | Create or update the ElevenLabs conversation agent from the current skills; `talk` starts one at the Mac; `status`. |
 | `daxton tunnel quick [--service]` | Publish the dashboard now at a random `https://<words>.trycloudflare.com` address (no domain, no account). |
 | `daxton tunnel setup <host>` | Publish it at `https://<host>` on your own Cloudflare-hosted domain (`run` for a foreground test, `status` to check). |
 | `daxton service install` | Keep `daxton ui` running at login (macOS launchd agent); `uninstall`, `status`. |
@@ -238,6 +277,9 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 | `MIN_SPEECH_RMS`, `SILENCE_SECONDS`, `MAX_UTTERANCE_SECONDS`, `LISTEN_TIMEOUT_SECONDS` | `0.010, 1.2, 15, 8` | Voice activity tuning. The mic calibrates to room noise at startup. |
 | `ASSISTANT_NAME`, `PRODUCT_NAME`, `USER_NAME`, `HONORIFIC` | `Daxton`, `Daxton AI`, empty, `sir` | Persona and branding. |
 | `HISTORY_TURNS`, `MAX_TOOL_ROUNDS`, `MAX_TOKENS` | `8, 6, 400` | Conversation memory, tool chaining depth, reply length. |
+| `CONVAI_LLM`, `CONVAI_VOICE_ID`, `CONVAI_TTS_MODEL` | `claude-sonnet-5`, the ElevenLabs voice, `eleven_flash_v2_5` | The conversation agent's brain and voice. |
+| `CONVAI_LOCAL`, `CONVAI_BARGE_IN`, `CONVAI_SILENCE_END`, `CONVAI_MAX_MINUTES` | `true`, `false`, `45`, `30` | Whether the name opens a conversation at the Mac, whether the Mac mic stays open while Daxton talks, and when a conversation ends by itself. |
+| `DAXTON_SHELL`, `CLAUDE_CODE_BIN`, `TASKS_DIR`, `TASK_TIMEOUT_MINUTES` | `true`, on PATH, `~/Documents/Claude/Projects/daxton-tasks`, `30` | The work skills: shell on or off, where Claude Code is, where delegated tasks run. |
 | `DASHBOARD_PASSWORD` | empty | Login for the dashboard. Empty: only the Mac's own browser is served. Set: every page, API call and socket needs the session cookie. Changing it signs everyone out. |
 | `DASHBOARD_SECRET`, `DASHBOARD_SESSION_DAYS` | generated, `30` | Cookie signing secret (else one is generated into `~/.daxton/dashboard.secret`) and session length. |
 | `DASHBOARD_HOST`, `DASHBOARD_PORT` | `127.0.0.1`, `8765` | Where `daxton ui` listens; the tunnel forwards to this port. |
@@ -273,7 +315,7 @@ only knows the built-in patterns; new skills are reachable through an LLM brain 
 
 ```
 daxton/
-  cli.py            commands (run, chat, ask, say, listen, ui, tunnel, service, rate, doctor, devices, voices, ...)
+  cli.py            commands (run, chat, ask, say, listen, ui, convai, tunnel, service, rate, doctor, devices, ...)
   events.py         thread-safe event bus (the dashboard's feed)
   config.py         Settings from .env / environment; provider auto-selection
   assistant.py      the loop: wake -> record -> transcribe -> router -> speak
@@ -287,10 +329,12 @@ daxton/
   brain/            base.py (neutral Message/ToolSpec types), router.py (tool loop), prompts.py,
                     rating.py (complexity score -> tier), tiered.py (free -> fast -> smart with escalation),
                     anthropic_llm.py, openai_llm.py, ollama_llm.py, keyword_brain.py, factory.py
-  skills/           registry.py (@skill), apps.py, web.py, system.py, files.py, notes.py, timers.py, control.py
+  skills/           registry.py (@skill), apps.py, web.py, system.py, files.py, notes.py, timers.py, control.py,
+                    work.py (files, shell, Python, pages, delegate_task to Claude Code)
+  convai/           the ElevenLabs Conversational AI agent: the agent as data, the sync, the Mac-side session
   ui/               server.py (FastAPI + WebSocket + telemetry), auth.py (login, sessions), voice.py (browser
                     microphone in, voice out), static/index.html (the HUD), static/login.html
-tests/              180+ tests, no network, no audio hardware needed:  pytest
+tests/              200+ tests, no network, no audio hardware needed:  pytest
 scripts/            setup_mac.sh
 ```
 

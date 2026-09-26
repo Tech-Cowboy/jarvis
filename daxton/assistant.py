@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 STATES = ("offline", "idle", "listening", "transcribing", "thinking", "speaking")
 
 CLI_COMMANDS = {"run", "chat", "ask", "say", "listen", "rate", "doctor", "devices", "voices", "skills",
-                "download-models", "ui", "tunnel", "service"}
+                "download-models", "ui", "tunnel", "service", "convai"}
 
 
 def _looks_like_cli_command(text: str) -> bool:
@@ -61,7 +61,8 @@ class Assistant:
         self.muted = False
         self.state = "offline"
         self.started_at = time.time()
-        self.ctx = SkillContext(settings=settings, speak=self.speak, stop_event=self.stop_event)
+        self.ctx = SkillContext(settings=settings, speak=self.speak, stop_event=self.stop_event, bus=self.bus,
+                                end_conversation=self.end_conversation)
         self.router = Router(
             llm, self.registry, lambda: system_prompt(settings), self.ctx,
             history_turns=settings.history_turns, max_tool_rounds=settings.max_tool_rounds,
@@ -72,6 +73,7 @@ class Assistant:
         self.audio_listeners = 0  # dashboards that asked for the voice as audio (see ui/server.py)
         self._transcriber_lock = threading.Lock()
         self._interrupted = False
+        self._conversation = None  # the running LocalConversation, if any
         # audio hooks for the dashboard visualiser
         if self.mic is not None:
             self.mic.on_frame = self._on_mic_frame
@@ -203,6 +205,8 @@ class Assistant:
             "voice_mode": self.mic is not None,
             "local_audio": self.local_audio,
             "remote_voice": True,  # browsers may stream their microphone in and receive the voice back
+            "convai": {"ready": s.convai_ready(), "agent_id": s.resolved_convai_agent_id() or None,
+                       "local": self.conversational, "active": self._conversation is not None},
             "vad": {"min_speech_rms": s.min_speech_rms, "silence_seconds": s.silence_seconds,
                     "max_utterance_seconds": s.max_utterance_seconds},
             "skills": [{"name": t.name, "description": t.description.splitlines()[0]} for t in self.registry.tool_specs()],
@@ -311,13 +315,65 @@ class Assistant:
                 self._set_state("idle")
                 return
             text = self._strip_name(text)
+            if not text and self.conversational:
+                self.conversation_session(opening=f"{name}?")  # just the name: open the conversation and let it answer
+                return
             if not text:
                 self._acknowledge()
                 self._set_state("idle")
                 return
         print(f"You: {text}")
+        if self.conversational:
+            self.conversation_session(opening=text)
+            return
         reply = self.respond(text)
         print(f"{name}: {reply}")
+
+    # ------------------------------------------------------------ conversations
+    @property
+    def conversational(self) -> bool:
+        """Does saying the name open a real-time conversation (ElevenLabs agent) instead of one exchange?"""
+        s = self.settings
+        return bool(getattr(s, "convai_local", False)) and s.convai_ready()
+
+    def conversation_session(self, opening: str = "", client_label: str = "the Mac") -> list[tuple[str, str]]:
+        """A full back-and-forth on the Mac's own microphone and speakers until it goes quiet or is ended."""
+        from .convai.local import LocalConversation
+
+        with self._turn_lock:
+            if self._conversation is not None:
+                self.bus.publish("notice", text="a conversation is already running")
+                return []
+            agent_id = self.settings.resolved_convai_agent_id()
+            if not agent_id:
+                self.bus.publish("error", text="no conversation agent yet: run `daxton convai setup`")
+                return []
+            self._conversation = LocalConversation(self, agent_id, client_label=client_label, opening=opening)
+        mic_was_on = self.mic is not None and getattr(self.mic, "_stream", None) is not None
+        try:
+            if mic_was_on:
+                self.mic.stop()  # one capture stream at a time; the session opens its own
+            return self._conversation.run()
+        except Exception as e:
+            log.error("conversation failed: %s", e)
+            self.bus.publish("error", text=f"conversation failed: {e}")
+            self._set_state("idle")
+            return []
+        finally:
+            self._conversation = None
+            if mic_was_on:
+                try:
+                    self.mic.start()
+                    self.mic.flush()
+                except Exception as e:
+                    log.error("microphone did not come back: %s", e)
+
+    def end_conversation(self) -> bool:
+        conv = self._conversation
+        if conv is None:
+            return False
+        conv.end()
+        return True
 
     # -------------------------------------------------------------- helpers
     def _set_state(self, state: str) -> None:

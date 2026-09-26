@@ -131,6 +131,22 @@ class Settings:
     public_hostname: str = ""  # e.g. daxton.example.com, the name the Cloudflare tunnel publishes
     tunnel_name: str = "daxton"  # the cloudflared tunnel name
 
+    # Conversations (ElevenLabs Conversational AI)
+    convai_agent_id: str = ""  # set by `daxton convai setup` (kept in ~/.daxton/convai.json) or CONVAI_AGENT_ID
+    convai_llm: str = "claude-sonnet-5"  # the model ElevenLabs runs for the agent
+    convai_voice_id: str = ""  # defaults to ELEVENLABS_VOICE_ID
+    convai_tts_model: str = "eleven_flash_v2_5"
+    convai_local: bool = True  # saying the name at the Mac starts a conversation session on its own mic and speakers
+    convai_barge_in: bool = False  # Mac mic stays muted while Daxton speaks (no echo cancellation without a headset)
+    convai_silence_end: int = 45  # seconds of silence before a session ends by itself
+    convai_max_minutes: int = 30
+
+    # Work
+    shell_enabled: bool = True  # run_command, run_python, delegate_task
+    claude_code_bin: str = ""  # path to the Claude Code executable when it is not on PATH
+    tasks_dir: Path = field(default_factory=lambda: Path.home() / "Documents/Claude/Projects/daxton-tasks")
+    task_timeout_minutes: int = 30
+
     # Skills
     search_max_results: int = 5
     data_dir: Path = field(default_factory=lambda: Path.home() / ".daxton")
@@ -255,6 +271,21 @@ class Settings:
             return word or f"hey {self.assistant_name.lower()}"
         return self.assistant_name
 
+    def convai_ready(self) -> bool:
+        """A conversation agent exists and the ElevenLabs key is present."""
+        return bool(self.elevenlabs_api_key) and bool(self.resolved_convai_agent_id())
+
+    def resolved_convai_agent_id(self) -> str:
+        if self.convai_agent_id:
+            return self.convai_agent_id
+        try:
+            import json
+
+            state = json.loads((self.data_dir / "convai.json").read_text(encoding="utf-8"))
+            return str(state.get("agent_id") or "")
+        except Exception:
+            return ""
+
     def masked(self, value: str) -> str:
         if not value:
             return "(unset)"
@@ -340,6 +371,18 @@ def load_settings() -> Settings:
         dashboard_session_days=_int(e("DASHBOARD_SESSION_DAYS"), 30),
         public_hostname=e("PUBLIC_HOSTNAME", "").strip().lower().rstrip("."),
         tunnel_name=e("TUNNEL_NAME", "daxton").strip() or "daxton",
+        convai_agent_id=e("CONVAI_AGENT_ID", "").strip(),
+        convai_llm=e("CONVAI_LLM", "claude-sonnet-5").strip(),
+        convai_voice_id=e("CONVAI_VOICE_ID", "").strip(),
+        convai_tts_model=e("CONVAI_TTS_MODEL", "eleven_flash_v2_5").strip(),
+        convai_local=_bool(e("CONVAI_LOCAL"), True),
+        convai_barge_in=_bool(e("CONVAI_BARGE_IN"), False),
+        convai_silence_end=_int(e("CONVAI_SILENCE_END"), 45),
+        convai_max_minutes=_int(e("CONVAI_MAX_MINUTES"), 30),
+        shell_enabled=_bool(e("DAXTON_SHELL"), True),
+        claude_code_bin=e("CLAUDE_CODE_BIN", "").strip(),
+        tasks_dir=Path(e("TASKS_DIR", str(Path.home() / "Documents/Claude/Projects/daxton-tasks"))).expanduser(),
+        task_timeout_minutes=_int(e("TASK_TIMEOUT_MINUTES"), 30),
         search_max_results=_int(e("SEARCH_MAX_RESULTS"), 5),
         data_dir=Path(e("DAXTON_DATA_DIR", str(Path.home() / ".daxton"))).expanduser(),
         log_level=e("LOG_LEVEL", "WARNING").upper(),

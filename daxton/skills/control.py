@@ -8,7 +8,12 @@ from .registry import skill
 
 @skill()
 def end_session(ctx: SkillContext = None) -> str:
-    """Stop listening and shut the assistant down (user said goodbye, exit, stop listening)."""
+    """End the conversation (user said goodbye, that's all, stop listening). Outside a conversation this shuts the assistant down."""
+    try:
+        if ctx.end_conversation():
+            return "Goodbye."
+    except Exception:
+        pass
     ctx.stop_event.set()
     return "Goodbye."
 

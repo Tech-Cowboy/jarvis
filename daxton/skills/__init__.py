@@ -15,6 +15,7 @@ DEFAULT_SKILL_MODULES = [
     "daxton.skills.notes",
     "daxton.skills.timers",
     "daxton.skills.control",
+    "daxton.skills.work",
 ]
 
 

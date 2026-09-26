@@ -177,6 +177,21 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
             if not shutil.which(tool):
                 add(Check(WARN, "macos", f"`{tool}` not found; some skills will not work"))
 
+    # --- conversations
+    if settings.elevenlabs_api_key:
+        agent = settings.resolved_convai_agent_id()
+        add(Check(OK if agent else WARN, "conversations", f"ElevenLabs agent {agent}" if agent else "no conversation agent yet",
+                  "" if agent else "daxton convai setup   (real-time conversations with Daxton's skills as tools)"))
+    else:
+        add(Check(WARN, "conversations", "no ELEVENLABS_API_KEY: single exchanges only, no real-time conversations",
+                  "add ELEVENLABS_API_KEY to .env, then daxton convai setup"))
+    if settings.shell_enabled:
+        from .skills.work import find_claude_code
+
+        cc = find_claude_code(settings)
+        add(Check(OK if cc else WARN, "work", f"shell on; Claude Code at {cc}" if cc else "shell on; Claude Code not found (delegate_task unavailable)",
+                  "" if cc else "npm install -g @anthropic-ai/claude-code, then run `claude` once to sign in"))
+
     # --- dashboard and portal
     ui_ok = _importable("fastapi") and _importable("uvicorn")
     add(Check(OK if ui_ok else WARN, "dashboard", f"`daxton ui` on http://{settings.dashboard_host}:{settings.dashboard_port}"

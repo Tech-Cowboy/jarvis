@@ -52,7 +52,7 @@ except ImportError:  # the [ui] extra is optional
 
 STATIC_DIR = Path(__file__).parent / "static"
 COMMANDS = ("say", "talk", "stop_speaking", "pin_tier", "mute", "local_audio", "new_conversation", "run_skill",
-            "end_session")
+            "end_session", "converse", "end_conversation")
 VOICE_COMMANDS = ("voice_start", "voice_end", "audio")
 OUTBOX_LIMIT = 600  # queued messages per connection before audio frames are dropped for that client
 
@@ -180,6 +180,17 @@ def handle_command(assistant, msg: dict[str, Any]) -> dict[str, Any] | None:
         assistant.stop_event.set()
         assistant.bus.publish("notice", text="session ending")
         return {"type": "ack", "cmd": cmd, "ok": True}
+    if cmd == "converse":  # a conversation on the Mac's own microphone and speakers, started from the dashboard
+        if not assistant.settings.convai_ready():
+            return {"type": "ack", "cmd": cmd, "ok": False, "error": "no conversation agent yet (daxton convai setup)"}
+        if assistant._conversation is not None:
+            return {"type": "ack", "cmd": cmd, "ok": False, "error": "a conversation is already running"}
+        opening = str(msg.get("text", "") or "")
+        threading.Thread(target=assistant.conversation_session, kwargs={"opening": opening, "client_label": "the Mac"},
+                         name="daxton-converse", daemon=True).start()
+        return {"type": "ack", "cmd": cmd, "ok": True}
+    if cmd == "end_conversation":
+        return {"type": "ack", "cmd": cmd, "ok": assistant.end_conversation()}
     return {"type": "ack", "cmd": cmd, "ok": False, "error": f"unknown command; try {', '.join(COMMANDS)}"}
 
 
@@ -350,6 +361,62 @@ def create_app(assistant, auth: DashboardAuth | None = None):
         result = await asyncio.to_thread(handle_command, assistant, msg)
         return JSONResponse(result or {"type": "ack", "ok": True})
 
+    # ------------------------------------------------------ conversations (ElevenLabs agent in the browser)
+    @app.get("/api/convai/session")
+    async def convai_session(request: Request) -> JSONResponse:
+        """What the page needs to open a conversation with the agent: a short-lived token, and the live context."""
+        if not settings.convai_ready():
+            return JSONResponse({"error": "no conversation agent yet: run `daxton convai setup` on the Mac"}, status_code=404)
+        from .. import convai
+
+        agent_id = settings.resolved_convai_agent_id()
+        label = "the phone" if not auth.is_local(request) else "the Mac's browser"
+
+        def fetch() -> dict[str, Any]:
+            client = convai_client_factory(settings)
+            out: dict[str, Any] = {"agent_id": agent_id, "dynamic_variables": convai.dynamic_variables(settings, label),
+                                   "client": label}
+            try:
+                out["token"] = client.webrtc_token(agent_id)
+            except Exception as e:
+                log.debug("webrtc token unavailable (%s); using a signed url", e)
+                out["signed_url"] = client.signed_url(agent_id)
+            return out
+
+        try:
+            return JSONResponse(await asyncio.to_thread(fetch))
+        except Exception as e:
+            return JSONResponse({"error": f"could not start a conversation: {e}"}, status_code=502)
+
+    @app.post("/api/convai/event")
+    async def convai_event(request: Request, msg: dict[str, Any]) -> JSONResponse:
+        """Transcript and status events from a browser conversation, so the log and the memory see them."""
+        kind = str(msg.get("type", ""))
+        label = "the phone" if not auth.is_local(request) else "the Mac's browser"
+        if kind == "user":
+            assistant.bus.publish("user", text=str(msg.get("text", ""))[:2000])
+            assistant._set_state("thinking")
+        elif kind == "agent":
+            assistant.bus.publish("assistant", text=str(msg.get("text", ""))[:4000])
+            assistant._set_state("speaking")
+        elif kind == "mode":
+            assistant._set_state("speaking" if msg.get("mode") == "speaking" else "listening")
+        elif kind == "start":
+            assistant.bus.publish("conversation", status="start", client=label)
+            assistant._set_state("listening")
+        elif kind == "end":
+            from .. import convai
+
+            lines = [(str(l.get("who", "")), str(l.get("text", ""))) for l in (msg.get("transcript") or []) if l.get("text")]
+            path = await asyncio.to_thread(convai.save_transcript, settings, lines, label)
+            assistant.bus.publish("conversation", status="end", client=label, turns=len(lines), saved=str(path) if path else None)
+            assistant._set_state("idle")
+        elif kind == "error":
+            assistant.bus.publish("error", text=f"conversation ({label}): {str(msg.get('text', ''))[:300]}")
+        else:
+            return JSONResponse({"ok": False, "error": "unknown event"}, status_code=400)
+        return JSONResponse({"ok": True})
+
     # ------------------------------------------------------------ socket
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:
@@ -513,6 +580,13 @@ class _VoiceSession:
         if self.relay.enabled:
             self.relay.enabled = False
             self.assistant.audio_listeners = max(0, self.assistant.audio_listeners - 1)
+
+
+def convai_client_factory(settings):
+    """Separate so tests can swap in a fake ElevenLabs client."""
+    from .. import convai
+
+    return convai.ElevenConvAI(settings.elevenlabs_api_key)
 
 
 def _qr_available() -> bool:

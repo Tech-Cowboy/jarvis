@@ -15,6 +15,8 @@ class SkillContext:
     speak: Callable[[str], None] = lambda text: print(text)  # replaced by the assistant's speaker
     stop_event: threading.Event = field(default_factory=threading.Event)  # set to end the session
     reset_conversation: Callable[[], None] = lambda: None  # replaced by the router
+    bus: object = None  # the assistant's EventBus when there is one (background work reports through it)
+    end_conversation: Callable[[], bool] = lambda: False  # ends a running conversation session; True if there was one
 
     def notify(self, text: str) -> None:
         """Speak from a background thread (timers). Falls back to print if speaking fails."""

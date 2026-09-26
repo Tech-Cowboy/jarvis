@@ -250,6 +250,59 @@ def cmd_service(settings: Settings, args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_convai(settings: Settings, args: argparse.Namespace) -> int:
+    """Conversational Daxton: an ElevenLabs Conversational AI agent with Daxton's skills as its tools."""
+    from . import convai
+
+    if args.action == "status":
+        state = convai.load_state(settings)
+        agent = settings.resolved_convai_agent_id()
+        print(f"  ElevenLabs key   {'set' if settings.elevenlabs_api_key else 'ELEVENLABS_API_KEY not set'}")
+        print(f"  agent            {agent or 'none (daxton convai setup)'}")
+        print(f"  llm              {state.get('llm') or settings.convai_llm}")
+        print(f"  voice            {state.get('voice_id') or settings.convai_voice_id or settings.elevenlabs_voice_id}")
+        print(f"  tools            {len(state.get('tool_ids') or {})} registered, updated {state.get('updated', 'never')}")
+        print(f"  at the Mac       {'saying the name opens a conversation' if settings.convai_local else 'off (CONVAI_LOCAL=false)'}"
+              f", barge-in {'on' if settings.convai_barge_in else 'off'}")
+        print(f"  shell            {'on' if settings.shell_enabled else 'off (DAXTON_SHELL=false)'}")
+        from .skills.work import find_claude_code
+
+        print(f"  Claude Code      {find_claude_code(settings) or 'not found (delegate_task will say so)'}")
+        return 0
+    if not settings.elevenlabs_api_key:
+        print("convai: ELEVENLABS_API_KEY is not set. Put it in .env (Profile > API keys on elevenlabs.io) and retry.",
+              file=sys.stderr)
+        return 1
+    if args.action == "setup":
+        from .skills import load_default_skills
+
+        try:
+            client = convai.ElevenConvAI(settings.elevenlabs_api_key)
+            state = convai.sync_agent(settings, load_default_skills(), client)
+        except convai.ConvAIError as e:
+            print(f"convai: {e}", file=sys.stderr)
+            return 1
+        print(f"Ready. Agent {state['agent_id']} speaks with voice {state['voice_id']} through {state['llm']}.")
+        print("  * at the Mac: say the name (daxton ui or daxton run) and talk; `daxton convai talk` starts one now")
+        print("  * in the portal: the Converse button")
+        return 0
+    if args.action == "talk":
+        if not settings.resolved_convai_agent_id():
+            print("convai: no agent yet; run `daxton convai setup` first.", file=sys.stderr)
+            return 1
+        assistant = _build_assistant(settings, voice=False)
+        assistant.show_tools = True
+        print(f"Talking to {settings.assistant_name} on this Mac. Say goodbye, or Ctrl-C, to stop.")
+        try:
+            lines = assistant.conversation_session(opening=args.opening or "", client_label="the Mac (terminal)")
+        except KeyboardInterrupt:
+            assistant.end_conversation()
+            lines = []
+        print(f"Conversation over ({len(lines)} lines).")
+        return 0
+    return 1
+
+
 def cmd_doctor(settings: Settings, args: argparse.Namespace) -> int:
     from .doctor import FAIL, format_checks, run_checks
 
@@ -358,6 +411,10 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--host", default=None)
     v.add_argument("--port", type=int, default=None)
     v.set_defaults(func=cmd_service)
+    cv = sub.add_parser("convai", help="conversations: an ElevenLabs Conversational AI agent with Daxton's skills")
+    cv.add_argument("action", choices=["setup", "talk", "status"])
+    cv.add_argument("--opening", default="", help="talk: what to say first")
+    cv.set_defaults(func=cmd_convai)
     r = sub.add_parser("rate", help="show the complexity score and tier a request would get")
     r.add_argument("text", nargs="*", help="the request (or pipe lines on stdin)")
     r.set_defaults(func=cmd_rate)

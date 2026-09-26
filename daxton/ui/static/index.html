@@ -318,6 +318,7 @@
       <input id="input" type="text" placeholder="type a request, or press space to talk" autocomplete="off" spellcheck="false">
       <button class="btn" id="sendbtn">Send</button>
       <button class="btn" id="talkbtn" title="Talk: click to start, click again or go quiet to stop (hold space)">&#9679; Talk</button>
+      <button class="btn hot" id="convbtn" title="A real conversation: talk back and forth, interrupt, no wake word" style="display:none">&#9654; Converse</button>
       <select class="btn" id="micsrc" title="Which microphone the Talk button uses">
         <option value="browser">mic: here</option><option value="mac">mic: mac</option>
       </select>
@@ -434,6 +435,8 @@
         if (ev.cmd === "voice_start" && ev.ok === false) stopCapture(false);
         if (ev.ok === false && ev.error) appendLog({ type: "error", text: ev.error, ts: Date.now() / 1000 });
         break;
+      case "conversation": if (S.snapshot && S.snapshot.convai) S.snapshot.convai.active = ev.status === "start"; appendLog({ type: "notice", text: ev.status === "start" ? `conversation started on ${ev.client}` : `conversation ended on ${ev.client}${ev.turns ? ` (${ev.turns} lines)` : ""}`, ts: ev.ts }); renderConvButton(); break;
+      case "task": appendLog({ type: ev.status === "done" ? "assistant" : "error", text: `task ${ev.id} ${ev.status}: ${(ev.result || "").split("\n")[0]}`, ts: ev.ts }); break;
       case "user": case "assistant": case "tool": case "error": case "notice": case "wake": case "heard": case "online":
         appendLog(ev); break;
     }
@@ -451,7 +454,7 @@
     $("mutebtn").classList.toggle("on", S.muted); $("mutebtn").textContent = S.muted ? "Unmute" : "Mute";
     S.localAudio = s.local_audio !== false; $("spkbtn").classList.toggle("on", S.localAudio);
     $("logoutbtn").style.display = s.auth ? "" : "none";
-    renderPortal(s);
+    renderPortal(s); renderConvButton();
     // microphone source: away from the Mac (or without a Mac mic) the page's own microphone; at the Mac, the Mac's
     const canBrowserMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
     $("micsrc").querySelector('[value="mac"]').disabled = !s.voice_mode;
@@ -734,6 +737,68 @@
   }
   $("audioprompt").onclick = () => { ensureOut(); $("audioprompt").classList.remove("show"); };
   document.addEventListener("pointerdown", () => { if (A.audioOn && A.outCtx && A.outCtx.state !== "running") ensureOut(); }, true);
+
+  // ------------------------------------------------------------ conversations (the ElevenLabs agent, in this browser)
+  const CV = { sdk: null, conv: null, active: false, transcript: [], meter: null, local: false };
+  function convReady() { return !!(S.snapshot && S.snapshot.convai && S.snapshot.convai.ready); }
+  function renderConvButton() {
+    const b = $("convbtn"); if (!convReady()) { b.style.display = "none"; return; }
+    b.style.display = "";
+    const localActive = S.snapshot && S.snapshot.convai && S.snapshot.convai.active;
+    b.classList.toggle("live", CV.active || !!localActive);
+    b.innerHTML = CV.active || localActive ? "&#9632; End" : "&#9654; Converse";
+    if (CV.active) $("hintline").textContent = "conversation on: just talk, interrupt any time, say goodbye to end";
+  }
+  async function postConv(ev) { try { await fetch("/api/convai/event", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify(ev) }); } catch (e) {} }
+  async function startConverse() {
+    if (CV.active) { await stopConverse(); return; }
+    if (!isRemote && A.micMode === "mac" && S.snapshot && S.snapshot.voice_mode) { send({ cmd: "converse" }); return; }  // the Mac's own mic and speakers
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { appendLog({ type: "error", text: "this browser cannot use the microphone here (it needs https or localhost)", ts: Date.now() / 1000 }); return; }
+    $("convbtn").disabled = true;
+    try {
+      const r = await fetch("/api/convai/session", { credentials: "same-origin" });
+      const sess = await r.json();
+      if (!r.ok) throw new Error(sess.error || ("session " + r.status));
+      if (!CV.sdk) CV.sdk = await import("https://cdn.jsdelivr.net/npm/@elevenlabs/client@1/+esm");
+      ensureOut();
+      const name = (S.snapshot && S.snapshot.assistant_name) || "Daxton";
+      const clientTools = {};
+      (S.snapshot.skills || []).forEach((k) => {
+        clientTools[k.name] = async (params) => {
+          const res = await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ cmd: "run_skill", name: k.name, args: params || {} }) });
+          const j = await res.json();
+          return j.result || (j.ok ? "Done." : (j.error || "Error: the tool failed"));
+        };
+      });
+      CV.transcript = [];
+      const opts = {
+        clientTools, dynamicVariables: sess.dynamic_variables || {},
+        onConnect: () => { CV.active = true; renderConvButton(); postConv({ type: "start" }); setState("listening"); },
+        onDisconnect: () => { if (CV.active) stopConverse(false); },
+        onError: (m) => { appendLog({ type: "error", text: "conversation: " + (m && m.message ? m.message : m), ts: Date.now() / 1000 }); postConv({ type: "error", text: String(m && m.message ? m.message : m) }); },
+        onMessage: ({ message, source }) => { const who = source === "user" ? "You" : name; CV.transcript.push({ who, text: message }); postConv({ type: source === "user" ? "user" : "agent", text: message }); },
+        onModeChange: ({ mode }) => { setState(mode === "speaking" ? "speaking" : "listening"); postConv({ type: "mode", mode }); },
+      };
+      if (sess.token) opts.conversationToken = sess.token; else opts.signedUrl = sess.signed_url;
+      CV.conv = await CV.sdk.Conversation.startSession(opts);
+      CV.meter = setInterval(() => {
+        if (!CV.conv) return;
+        const iv = CV.conv.getInputVolume ? CV.conv.getInputVolume() : 0, ov = CV.conv.getOutputVolume ? CV.conv.getOutputVolume() : 0;
+        const v = Math.min(1, Math.max(iv, ov) * 1.4); S.level = v * 0.12; S.source = ov > iv ? "speaker" : "mic"; lastAudioAt = Date.now();
+        for (let i = 0; i < 16; i++) S.bands[i] = Math.max(S.bands[i] * 0.7, v * (0.35 + 0.65 * Math.abs(Math.sin(Date.now() / 97 + i * 1.7))));
+      }, 80);
+    } catch (e) {
+      appendLog({ type: "error", text: "could not start the conversation: " + (e && e.message ? e.message : e), ts: Date.now() / 1000 });
+      CV.active = false;
+    } finally { $("convbtn").disabled = false; renderConvButton(); }
+  }
+  async function stopConverse(tell = true) {
+    const conv = CV.conv; CV.conv = null; CV.active = false; clearInterval(CV.meter); CV.meter = null;
+    if (conv) { try { await conv.endSession(); } catch (e) {} }
+    postConv({ type: "end", transcript: CV.transcript });
+    renderConvButton(); renderHint(); setState("idle");
+  }
+  $("convbtn").onclick = () => { const localActive = S.snapshot && S.snapshot.convai && S.snapshot.convai.active; if (!CV.active && localActive) send({ cmd: "end_conversation" }); else startConverse(); };
 
   // ------------------------------------------------------------ controls
   function sendText() { const v = $("input").value.trim(); if (!v) return; $("input").value = ""; send({ cmd: "say", text: v }); }
