@@ -147,6 +147,15 @@ class Settings:
     tasks_dir: Path = field(default_factory=lambda: Path.home() / "Documents/Claude/Projects/daxton-tasks")
     task_timeout_minutes: int = 30
 
+    # Business systems (read-only): bookings, customers, leads, sales, the inbox and reminders
+    business_name: str = ""  # how the business is referred to in speech, e.g. "Ocean View Stables"
+    business_tz: str = ""  # IANA zone for bookings and reports; empty = this computer's zone
+    odoo_url: str = ""
+    odoo_db: str = ""
+    odoo_username: str = ""
+    odoo_api_key: str = ""
+    odoo_credentials_path: str = ""  # a JSON file {url, db, username, api_key}, the same one other tools use
+
     # Skills
     search_max_results: int = 5
     data_dir: Path = field(default_factory=lambda: Path.home() / ".daxton")
@@ -286,6 +295,16 @@ class Settings:
         except Exception:
             return ""
 
+    def business_configured(self) -> bool:
+        """Credentials for the business system are present (env, or a credentials file that exists)."""
+        from .business.odoo import configured
+
+        return configured(self)
+
+    @property
+    def business_label(self) -> str:
+        return self.business_name or "the business"
+
     def masked(self, value: str) -> str:
         if not value:
             return "(unset)"
@@ -383,6 +402,13 @@ def load_settings() -> Settings:
         claude_code_bin=e("CLAUDE_CODE_BIN", "").strip(),
         tasks_dir=Path(e("TASKS_DIR", str(Path.home() / "Documents/Claude/Projects/daxton-tasks"))).expanduser(),
         task_timeout_minutes=_int(e("TASK_TIMEOUT_MINUTES"), 30),
+        business_name=e("BUSINESS_NAME", "").strip(),
+        business_tz=e("BUSINESS_TZ", "").strip(),
+        odoo_url=e("ODOO_URL", "").strip(),
+        odoo_db=e("ODOO_DB", "").strip(),
+        odoo_username=(e("ODOO_USERNAME", "") or e("ODOO_USER", "")).strip(),
+        odoo_api_key=e("ODOO_API_KEY", "").strip(),
+        odoo_credentials_path=e("ODOO_CREDENTIALS_PATH", "").strip(),
         search_max_results=_int(e("SEARCH_MAX_RESULTS"), 5),
         data_dir=Path(e("DAXTON_DATA_DIR", str(Path.home() / ".daxton"))).expanduser(),
         log_level=e("LOG_LEVEL", "WARNING").upper(),

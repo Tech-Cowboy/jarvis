@@ -192,6 +192,26 @@ def run_checks(settings: Settings, online: bool = False) -> list[Check]:
         add(Check(OK if cc else WARN, "work", f"shell on; Claude Code at {cc}" if cc else "shell on; Claude Code not found (delegate_task unavailable)",
                   "" if cc else "npm install -g @anthropic-ai/claude-code, then run `claude` once to sign in"))
 
+    # --- the business system (read-only)
+    from .business.odoo import OdooError, OdooNotConfigured, OdooReader, credentials_from
+
+    try:
+        creds = credentials_from(settings)
+        add(Check(OK, "business", f"{settings.business_label}: {creds['url']} db {creds['db']} as {creds['username']}, "
+                  f"read-only (bookings, customers, leads, sales, inbox, reminders, prices)"))
+        if online:
+            try:
+                me = OdooReader.from_settings(settings).whoami()
+                add(Check(OK, "business-online", f"connected as uid {me.get('id')} ({me.get('name', '')}), server {me.get('server') or '?'}"))
+            except OdooError as e:
+                add(Check(FAIL, "business-online", str(e), "check the URL, database, user and API key; `daxton business status`"))
+    except OdooNotConfigured as e:
+        if settings.odoo_url or settings.odoo_credentials_path:
+            add(Check(FAIL, "business", f"incomplete: {e}", "ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY, or ODOO_CREDENTIALS_PATH"))
+        else:
+            add(Check(WARN, "business", "no business system configured (bookings, customers, sales... are off)",
+                      "set ODOO_CREDENTIALS_PATH (or ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_API_KEY) in .env"))
+
     # --- dashboard and portal
     ui_ok = _importable("fastapi") and _importable("uvicorn")
     add(Check(OK if ui_ok else WARN, "dashboard", f"`daxton ui` on http://{settings.dashboard_host}:{settings.dashboard_port}"

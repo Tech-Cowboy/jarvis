@@ -31,6 +31,9 @@ HOME = Path.home()
 PROTECTED_PARTS = {".ssh", ".gnupg", ".aws", ".config/daxton", "Library/Keychains", ".daxton", ".cloudflared",
                    ".netrc", ".npmrc", ".pypirc", ".docker"}
 PROTECTED_NAMES = {".env", "id_rsa", "id_ed25519", "credentials", "token", "secret"}
+PROTECTED_WORDS = {"credential", "credentials", "secret", "secrets", "token", "tokens", "api_key", "apikey", "api_keys",
+                   "password", "passwords", "passwd", "id_rsa", "id_ed25519", "private_key", "privatekey"}
+PROTECTED_SUFFIXES = (".pem", ".p12", ".pfx", ".keychain", ".keychain-db", ".jks")
 DENY_PATTERNS = [
     r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*\s+|-[a-zA-Z]*f[a-zA-Z]*\s+)*(/|~|\$HOME|\.\.)(\s|$|/\*)",  # rm -rf / ~ ..
     r"\bsudo\b", r"\bsu\b", r"\bmkfs\b", r"\bdiskutil\s+(erase|partition|secureErase)", r"\bdd\s+if=",
@@ -63,8 +66,13 @@ def _safe_path(raw: str, must_exist: bool = False) -> Path:
     for part in PROTECTED_PARTS:
         if rel_s == part or rel_s.startswith(part + "/") or rel_s.startswith(part + os.sep):
             raise ValueError(f"{rel_s} holds credentials or Daxton's own state; I won't touch it")
-    if p.name in PROTECTED_NAMES or p.name.startswith(".env"):
+    lowered = p.name.lower()
+    words = {w for w in re.split(r"[^a-z0-9]+", lowered) if w} | {lowered.rsplit(".", 1)[0]}
+    if (p.name in PROTECTED_NAMES or lowered.startswith(".env") or words & PROTECTED_WORDS
+            or lowered.endswith(PROTECTED_SUFFIXES)):
         raise ValueError(f"{p.name} looks like a secrets file; I won't touch it")
+    if any("secret" in part.lower() or "credential" in part.lower() for part in rel.parts[:-1]):
+        raise ValueError(f"{rel_s} is inside a secrets folder; I won't touch it")
     if must_exist and not p.exists():
         raise ValueError(f"{p} does not exist")
     return p

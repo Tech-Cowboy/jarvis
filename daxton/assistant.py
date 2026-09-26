@@ -54,7 +54,7 @@ class Assistant:
         self.transcriber = transcriber
         self.mic = mic
         self.wake = wake
-        self.registry = registry or load_default_skills()
+        self.registry = registry or load_default_skills(settings=settings)
         self.bus = bus or EventBus()
         self.stop_event = threading.Event()
         self.talk_event = threading.Event()  # push-to-talk from the dashboard

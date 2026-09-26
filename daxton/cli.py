@@ -123,7 +123,7 @@ def cmd_rate(settings: Settings, args: argparse.Namespace) -> int:
     rater = ComplexityRater(settings.routing_fast_threshold, settings.routing_smart_threshold,
                             free_is_llm=(parse_spec(specs["free"])[0] != "keyword"),
                             assistant_name=settings.assistant_name)
-    tools = set(load_default_skills().names())
+    tools = set(load_default_skills(settings=settings).names())
     texts = [" ".join(args.text)] if args.text else [line.strip() for line in sys.stdin if line.strip()]
     for text in texts:
         r = rater.rate(text, tools)
@@ -278,7 +278,7 @@ def cmd_convai(settings: Settings, args: argparse.Namespace) -> int:
 
         try:
             client = convai.ElevenConvAI(settings.elevenlabs_api_key)
-            state = convai.sync_agent(settings, load_default_skills(), client)
+            state = convai.sync_agent(settings, load_default_skills(settings=settings), client)
         except convai.ConvAIError as e:
             print(f"convai: {e}", file=sys.stderr)
             return 1
@@ -301,6 +301,53 @@ def cmd_convai(settings: Settings, args: argparse.Namespace) -> int:
         print(f"Conversation over ({len(lines)} lines).")
         return 0
     return 1
+
+
+def cmd_business(settings: Settings, args: argparse.Namespace) -> int:
+    """The business system: connection status, or one of the read-only skills from the terminal."""
+    from .business.odoo import OdooError, OdooNotConfigured, OdooReader, credentials_from
+    from .skills import load_default_skills
+    from .skills.context import SkillContext
+
+    if args.action == "status":
+        try:
+            creds = credentials_from(settings)
+        except OdooNotConfigured as e:
+            print(f"business: not configured ({e}).", file=sys.stderr)
+            print("  Put ODOO_URL, ODOO_DB, ODOO_USERNAME and ODOO_API_KEY in .env, or ODOO_CREDENTIALS_PATH=/path/to/credentials.json",
+                  file=sys.stderr)
+            return 1
+        source = "ODOO_CREDENTIALS_PATH" if not settings.odoo_api_key else ".env"
+        print(f"  system           {creds['url']}  database {creds['db']}  (credentials from {source})")
+        print(f"  as               {creds['username']}")
+        print(f"  business name    {settings.business_label}   zone {settings.business_tz or 'this computer'}")
+        try:
+            r = OdooReader.from_settings(settings)
+            me = r.whoami()
+            print(f"  connection       ok: uid {me.get('id')} {me.get('name', '')}, server {me.get('server') or '?'}")
+        except OdooError as e:
+            print(f"  connection       FAILED: {e}")
+            return 1
+        print("  access           read-only by construction (search, read, count, group; never write, create or unlink)")
+        print("  skills           bookings, find_customer, recent_leads, sales_summary, inbox, reminders, price_check")
+        return 0
+    reg = load_default_skills(settings=settings)
+    ctx = SkillContext(settings=settings, speak=print)
+    name = {"today": "bookings", "leads": "recent_leads", "sales": "sales_summary", "customer": "find_customer",
+            "price": "price_check"}.get(args.action, args.action)
+    if reg.get(name) is None:
+        print(f"business: no such skill '{name}'. Try status, today, leads, sales, inbox, reminders, customer <name>, price <product>.",
+              file=sys.stderr)
+        return 1
+    text = " ".join(args.text).strip()
+    params = reg.get(name).parameters.get("properties", {})
+    arguments: dict = {}
+    if text:
+        first = next(iter(params), None)
+        if first:
+            arguments[first] = int(text) if params[first].get("type") == "integer" and text.isdigit() else text
+    print(reg.run(name, arguments, ctx))
+    return 0
 
 
 def cmd_doctor(settings: Settings, args: argparse.Namespace) -> int:
@@ -334,7 +381,7 @@ def cmd_voices(settings: Settings, args: argparse.Namespace) -> int:
 def cmd_skills(settings: Settings, args: argparse.Namespace) -> int:
     from .skills import load_default_skills
 
-    reg = load_default_skills()
+    reg = load_default_skills(settings=settings)
     for spec in sorted(reg.tool_specs(), key=lambda t: t.name):
         params = ", ".join(spec.parameters.get("properties", {}))
         print(f"{spec.name}({params})\n    {spec.description.splitlines()[0]}")
@@ -415,6 +462,11 @@ def build_parser() -> argparse.ArgumentParser:
     cv.add_argument("action", choices=["setup", "talk", "status"])
     cv.add_argument("--opening", default="", help="talk: what to say first")
     cv.set_defaults(func=cmd_convai)
+    b = sub.add_parser("business", help="the business system (read-only): status, or a skill from the terminal")
+    b.add_argument("action", nargs="?", default="status",
+                   help="status | today | bookings | leads | sales | inbox | reminders | customer | price")
+    b.add_argument("text", nargs="*", help="the skill's first argument, e.g. `business bookings tomorrow`")
+    b.set_defaults(func=cmd_business)
     r = sub.add_parser("rate", help="show the complexity score and tier a request would get")
     r.add_argument("text", nargs="*", help="the request (or pipe lines on stdin)")
     r.set_defaults(func=cmd_rate)

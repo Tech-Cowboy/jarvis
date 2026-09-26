@@ -162,6 +162,20 @@ Beyond the original skills (apps, sites, search, timers, notes, screenshots), Da
   (`TASKS_DIR`, default `~/Documents/Claude/Projects/daxton-tasks/<date>-<slug>/`), keeps the conversation going,
   and tells you when it is done; **task_status** checks on it. Needs Claude Code installed and signed in.
 
+### The business
+
+If you run a business on Odoo, Daxton can read its system of record and answer from live data: "what's booked
+tomorrow", "who is Jenny Wu", "any new leads today", "how did we do this month", "what came in the inbox", "what's
+overdue", "what do we charge for a beach ride". Point `.env` at the credentials the company's other tools already use
+(`ODOO_CREDENTIALS_PATH=/path/to/credentials.json`, a JSON file with `url`, `db`, `username`, `api_key`; or the four
+`ODOO_*` variables), name the business (`BUSINESS_NAME=Ocean View Stables`) and run `daxton business status`.
+
+The connection is **read-only by construction**: the client in `daxton/business/odoo.py` refuses every method that is
+not a read, whatever the API key would allow, so Daxton can never change a booking, send an email, refund or charge
+anyone. He says so when asked, and offers to save a note instead. Prices come from `price_check` and nowhere else, so a
+figure he quotes is the one the system holds at that moment. In speech the system is "the business system", never a
+vendor's name. `docs/business.md` has the skills, the queries and the guard rails.
+
 ## Free by default, smarter when it matters
 
 Every request is scored for complexity before any model is called (a deterministic rater, microseconds, no API), and
@@ -202,6 +216,7 @@ keyword rules; without it, anything the rules cannot parse goes straight to the 
 | `daxton listen` | Record one utterance, print the transcript (tests the mic and Whisper). |
 | `daxton ui` | Voice mode plus the live dashboard in your browser (`--app` for a chromeless window, `--no-voice` for text only). |
 | `daxton convai setup` | Create or update the ElevenLabs conversation agent from the current skills; `talk` starts one at the Mac; `status`. |
+| `daxton business status` | Check the (read-only) connection to the business system; `today`, `bookings tomorrow`, `leads`, `sales month`, `inbox`, `reminders`, `customer <name>`, `price <product>` run a skill from the terminal. |
 | `daxton tunnel quick [--service]` | Publish the dashboard now at a random `https://<words>.trycloudflare.com` address (no domain, no account). |
 | `daxton tunnel setup <host>` | Publish it at `https://<host>` on your own Cloudflare-hosted domain (`run` for a foreground test, `status` to check). |
 | `daxton service install` | Keep `daxton ui` running at login (macOS launchd agent); `uninstall`, `status`. |
@@ -280,6 +295,8 @@ Copy `.env.example` to `.env`. Keys are read from the environment only; nothing 
 | `CONVAI_LLM`, `CONVAI_VOICE_ID`, `CONVAI_TTS_MODEL` | `claude-sonnet-5`, the ElevenLabs voice, `eleven_flash_v2` | The conversation agent's brain and voice. |
 | `CONVAI_LOCAL`, `CONVAI_BARGE_IN`, `CONVAI_SILENCE_END`, `CONVAI_MAX_MINUTES` | `true`, `false`, `45`, `30` | Whether the name opens a conversation at the Mac, whether the Mac mic stays open while Daxton talks, and when a conversation ends by itself. |
 | `DAXTON_SHELL`, `CLAUDE_CODE_BIN`, `TASKS_DIR`, `TASK_TIMEOUT_MINUTES` | `true`, on PATH, `~/Documents/Claude/Projects/daxton-tasks`, `30` | The work skills: shell on or off, where Claude Code is, where delegated tasks run. |
+| `ODOO_CREDENTIALS_PATH` or `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_API_KEY` | empty | The business system (read-only). A JSON file `{url, db, username, api_key}`, or the four values. Unset: the business skills are off. |
+| `BUSINESS_NAME`, `BUSINESS_TZ` | `the business`, this computer's zone | How the business is referred to in speech; the zone bookings and reports are read in. |
 | `DASHBOARD_PASSWORD` | empty | Login for the dashboard. Empty: only the Mac's own browser is served. Set: every page, API call and socket needs the session cookie. Changing it signs everyone out. |
 | `DASHBOARD_SECRET`, `DASHBOARD_SESSION_DAYS` | generated, `30` | Cookie signing secret (else one is generated into `~/.daxton/dashboard.secret`) and session length. |
 | `DASHBOARD_HOST`, `DASHBOARD_PORT` | `127.0.0.1`, `8765` | Where `daxton ui` listens; the tunnel forwards to this port. |

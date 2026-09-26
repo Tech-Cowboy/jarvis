@@ -41,6 +41,15 @@ DYNAMIC_VARIABLES = {
 
 
 # ------------------------------------------------------------------ the agent, as data
+def business_guidance(settings, registry) -> str:
+    """The paragraph about the business system, only when its tools are registered."""
+    if registry.get("bookings") is None:
+        return ""
+    label = settings.business_label
+    return f"""- {label}: bookings (a day, the weekend or the week), find_customer, recent_leads, sales_summary, inbox (incoming email and tickets), reminders, price_check. They read live from {label}'s system of record, so use them for anything about the business rather than guessing, and call it "the system" or "{label}'s system", never a vendor's name. They are read-only: you cannot change a booking, send an email, refund or charge anyone; say so and offer to save a note (remember) for {{{{user_name}}}} to act on. Never state a price that did not come from price_check in this conversation. Read out a customer's contact details only when {{{{user_name}}}} asked for that customer.
+"""
+
+
 def agent_prompt(settings, registry) -> str:
     names = ", ".join(registry.names())
     return f"""You are {settings.assistant_name}, {{{{user_name}}}}'s personal AI assistant, speaking with them in real time.
@@ -57,7 +66,7 @@ ordinary work: {names}.
 - Commands and code: run_command and run_python. Say what you are about to run when it changes something; ask first if it could delete or overwrite anything of theirs.
 - Big jobs (build, write, refactor, research and compile, anything that takes more than a moment): delegate_task with a full brief, tell them it has started, keep talking; task_status when they ask how it is going. You will be told when it finishes.
 - Memory: remember saves a note, recall_notes reads them. set_timer for timers. end_session when they say goodbye.
-After a tool returns, say what happened in one sentence. If a tool errors, say so plainly and offer the next best step.
+{business_guidance(settings, registry)}After a tool returns, say what happened in one sentence. If a tool errors, say so plainly and offer the next best step.
 If a request is ambiguous, ask one short question.
 
 Context for this conversation: it is {{{{now}}}}; you are running on {{{{client}}}}.

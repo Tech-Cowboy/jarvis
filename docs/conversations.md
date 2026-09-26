@@ -69,6 +69,10 @@ The agent's prompt tells it to use these without asking for ordinary work, to sa
 changes something, and to ask first when something could delete or overwrite your files. Everything it does shows
 up in the HUD log as a tool line.
 
+With a business system configured (`docs/business.md`), the agent also has `bookings`, `find_customer`,
+`recent_leads`, `sales_summary`, `inbox`, `reminders` and `price_check`, all read-only, and its prompt tells it to
+answer business questions from them, never from memory, and never to name the vendor.
+
 `delegate_task` needs Claude Code installed and signed in on the Mac (`npm install -g @anthropic-ai/claude-code`,
 then run `claude` once). It runs with Claude Code's own login, not the `ANTHROPIC_API_KEY` in `.env`. Each task
 gets its own folder unless you name one ("in my daxton-ai project"), and `TASK.md` in it records the brief.

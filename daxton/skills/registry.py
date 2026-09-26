@@ -99,6 +99,10 @@ class SkillRegistry:
     def get(self, name: str) -> Skill | None:
         return self._skills.get(name)
 
+    def remove(self, name: str) -> bool:
+        """Drop a skill (a tool the brain will not see); True if it was there."""
+        return self._skills.pop(name, None) is not None
+
     def names(self) -> list[str]:
         return sorted(self._skills)
 

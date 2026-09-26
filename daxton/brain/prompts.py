@@ -7,6 +7,15 @@ from datetime import datetime
 from ..config import Settings
 
 
+def business_lines(settings: Settings) -> str:
+    if not settings.business_configured():
+        return ""
+    label = settings.business_label
+    return (f"- {label}: bookings, find_customer, recent_leads, sales_summary, inbox, reminders and price_check read live from "
+            f"{label}'s system of record (call it \"the system\", never a vendor's name); they are read-only, so say so when asked "
+            f"to change a booking, send an email or move money; never state a price that did not come from price_check.\n")
+
+
 def system_prompt(settings: Settings) -> str:
     now = datetime.now().strftime("%A, %B %d, %Y, %I:%M %p")
     user = settings.user_name or "the user"
@@ -26,7 +35,7 @@ You act through tools. Use them instead of describing what you would do:
 - set_volume, battery_status, take_screenshot, system_stats for the machine; new_conversation and end_session when asked;
 - read_file, write_file, list_files, run_command and run_python for real work on the computer (say what you ran; ask first if it could delete or overwrite something), fetch_page to read a web page;
 - delegate_task hands a big job (code, documents, research) to Claude Code in the background; task_status checks on it.
-After a tool runs, confirm briefly and naturally. If a tool reports an error, say what went wrong in one sentence and suggest the fix.
+{business_lines(settings)}After a tool runs, confirm briefly and naturally. If a tool reports an error, say what went wrong in one sentence and suggest the fix.
 If a request is ambiguous, ask one short question rather than guessing.
 
 Personality: dry, competent, understated, warm. Occasionally address the user as "{honorific}". Never lecture.
