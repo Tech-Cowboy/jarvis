@@ -285,10 +285,17 @@ def test_sounddevice_audio_pump_and_half_duplex():
     audio._writer = threading.Thread(target=audio._pump, daemon=True)
     audio._writer.start()
     audio.output(b"\x00\x01" * 8000)  # 0.5 s of audio
-    time.sleep(0.15)
+    deadline = time.time() + 5  # the first chunk is mirrored once the (slow) device has played it; CI runners crawl
+    while not mirrored and time.time() < deadline:
+        time.sleep(0.02)
     assert audio.speaking is True and audio._out.written and mirrored[0][1] == RATE
     audio.interrupt()  # the user talked over it: the rest is dropped
-    time.sleep(0.2)
+    deadline = time.time() + 5
+    while time.time() < deadline:  # wait for the pump to notice: nothing more written for a full chunk's time
+        before = len(audio._out.written)
+        time.sleep(0.15)
+        if len(audio._out.written) == before:
+            break
     assert sum(audio._out.written) < 16000
     # while speaking (or just after), the microphone frames are replaced by silence unless barge-in is on
     sent = []
