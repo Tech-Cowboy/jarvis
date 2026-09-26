@@ -137,14 +137,19 @@ def test_dashboard_page_and_state(settings):
 def test_websocket_roundtrip_and_commands(settings):
     a, client = make_client(settings)
 
-    def read_until(ws, want, limit=30):
-        """Collect events until one of type `want` arrives (events from earlier turns may still be queued)."""
+    def read_until(ws, want, limit=30, cmd=None):
+        """Collect events until one of type `want` arrives (events from earlier turns may still be queued).
+
+        Bus events and command acks travel different paths, so an earlier command's ack can land after the
+        bus event it caused; `cmd` pins an ack to the command that is actually being waited for.
+        """
         seen = {}
         for _ in range(limit):
             ev = ws.receive_json()
-            seen.setdefault(ev["type"], ev)
-            if ev["type"] == want:
+            if ev["type"] == want and (cmd is None or ev.get("cmd") == cmd):
+                seen[ev["type"]] = ev
                 return seen
+            seen.setdefault(ev["type"], ev)
         raise AssertionError(f"no {want} event; saw {list(seen)}")
 
     with client:
@@ -162,7 +167,7 @@ def test_websocket_roundtrip_and_commands(settings):
             assert seen["muted"]["value"] is True and a.muted is True
 
             ws.send_json({"cmd": "talk"})
-            ack = read_until(ws, "ack")["ack"]
+            ack = read_until(ws, "ack", cmd="talk")["ack"]
             assert ack["ok"] is False and "microphone" in ack["error"]
 
             ws.send_json({"cmd": "run_skill", "name": "current_datetime", "args": {}})
@@ -170,11 +175,11 @@ def test_websocket_roundtrip_and_commands(settings):
             assert seen["tool"].get("direct") is True and seen["tool"]["result"].startswith("It is")
 
             ws.send_json({"cmd": "bogus"})
-            ack = read_until(ws, "ack")["ack"]
+            ack = read_until(ws, "ack", cmd="bogus")["ack"]
             assert ack["ok"] is False and "unknown command" in ack["error"]
 
             ws.send_json({"cmd": "pin_tier", "tier": "smart"})
-            ack = read_until(ws, "ack")["ack"]
+            ack = read_until(ws, "ack", cmd="pin_tier")["ack"]
             assert ack["ok"] is False  # single keyword brain: no tiers to pin
 
 

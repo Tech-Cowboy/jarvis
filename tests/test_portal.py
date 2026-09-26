@@ -146,8 +146,11 @@ def make(settings, password="", speaker=None, transcriber=None):
     return a, TestClient(create_app(a))
 
 
-def read_until(ws, want, limit=40):
-    """Collect messages until one of type `want` arrives; binary frames are counted under 'bytes'."""
+def read_until(ws, want, limit=40, cmd=None):
+    """Collect messages until one of type `want` arrives; binary frames are counted under 'bytes'.
+
+    `cmd` pins an ack to one command, since a bus event can overtake the ack of the command that caused it.
+    """
     seen: dict = {}
     for _ in range(limit):
         msg = ws.receive()
@@ -158,9 +161,10 @@ def read_until(ws, want, limit=40):
             continue
         import json
         ev = json.loads(msg["text"])
-        seen.setdefault(ev["type"], ev)
-        if ev["type"] == want:
+        if ev["type"] == want and (cmd is None or ev.get("cmd") == cmd):
+            seen[ev["type"]] = ev
             return seen
+        seen.setdefault(ev["type"], ev)
     raise AssertionError(f"no {want} message; saw {list(seen)}")
 
 
@@ -226,11 +230,11 @@ def test_browser_voice_round_trip_and_audio_out(settings):
             snap = ws.receive_json()
             assert snap["type"] == "snapshot" and snap["remote_voice"] is True and snap["local_audio"] is True
             ws.send_json({"cmd": "audio", "value": True})
-            ack = read_until(ws, "ack")["ack"]
+            ack = read_until(ws, "ack", cmd="audio")["ack"]
             assert ack["cmd"] == "audio" and ack["value"] is True
 
             ws.send_json({"cmd": "voice_start", "rate": 16000})
-            seen = read_until(ws, "ack")
+            seen = read_until(ws, "ack", cmd="voice_start")
             assert seen["ack"]["ok"] is True and seen["ack"]["rate"] == 16000
             for _ in range(6):
                 ws.send_bytes(pcm(0.08, 0.3))
@@ -249,9 +253,9 @@ def test_browser_voice_round_trip_and_audio_out(settings):
             assert voice.spoken and voice.spoken[0].startswith("It is")
 
             ws.send_json({"cmd": "audio", "value": False})
-            read_until(ws, "ack")
+            read_until(ws, "ack", cmd="audio")
             ws.send_json({"cmd": "say", "text": "what time is it"})
-            seen = read_until(ws, "ack")
+            seen = read_until(ws, "ack", cmd="say")
             assert seen.get("bytes", 0) == 0  # audio off: no frames for this client
 
 
@@ -261,11 +265,11 @@ def test_browser_voice_with_no_speech_and_bad_rate(settings):
         with client.websocket_connect("/ws") as ws:
             ws.receive_json()
             ws.send_json({"cmd": "voice_start", "rate": 4000})
-            assert read_until(ws, "ack")["ack"]["ok"] is False
+            assert read_until(ws, "ack", cmd="voice_start")["ack"]["ok"] is False
             ws.send_json({"cmd": "voice_end"})
-            assert read_until(ws, "ack")["ack"]["ok"] is False  # not listening
+            assert read_until(ws, "ack", cmd="voice_end")["ack"]["ok"] is False  # not listening
             ws.send_json({"cmd": "voice_start"})
-            read_until(ws, "ack")
+            read_until(ws, "ack", cmd="voice_start")
             ws.send_bytes(pcm(0.5))  # silence only
             ws.send_json({"cmd": "voice_end"})
             seen = read_until(ws, "heard")
